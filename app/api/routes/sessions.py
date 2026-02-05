@@ -105,18 +105,20 @@ async def create_session(
     )
 
     try:
-        # Create cloud device client
-        device = create_cloud_device(
-            provider=settings.cloud_device.provider,
-            api_key=settings.cloud_device.api_key,
-            base_url=settings.cloud_device.base_url or "",
+        # Create device client (uses settings.device for provider config)
+        device = await create_cloud_device(
+            provider=settings.device.device_provider,
+            device_id=settings.device.adb_device_serial or None,
         )
 
-        # Allocate device
-        device_info = await device.allocate(
-            device_name=request.device_name,
-            os_version=request.os_version,
-        )
+        # Connect to device
+        connected = await device.connect()
+        if not connected:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Failed to connect to device",
+            )
+        device_info = device.info
 
         # Calculate expiry
         from datetime import timedelta
@@ -253,9 +255,9 @@ async def delete_session(session_id: str) -> None:
     device: CloudDevice = session_data.get("device")
 
     try:
-        # Release device
+        # Disconnect device
         if device:
-            await device.release()
+            await device.disconnect()
 
         # Remove session
         del _sessions[session_id]

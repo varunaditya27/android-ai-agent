@@ -276,10 +276,10 @@ async def create_cloud_device(
     **kwargs: Any,
 ) -> CloudDevice:
     """
-    Factory function to create cloud device instances.
+    Factory function to create device instances.
 
     Args:
-        provider: Provider name ('limrun' or 'browserstack').
+        provider: Provider name ('adb', 'local', 'limrun', 'browserstack').
         device_id: Optional specific device ID.
         **kwargs: Additional provider-specific arguments.
 
@@ -288,15 +288,27 @@ async def create_cloud_device(
 
     Raises:
         ValueError: If provider is not supported.
+
+    Note:
+        'adb' and 'local' are FREE options using Android Emulator.
+        'limrun' and 'browserstack' are paid cloud services.
     """
+    from app.device.adb_device import ADBDevice
     from app.device.limrun_client import LimrunDevice
     from app.device.browserstack import BrowserStackDevice
 
     provider = provider.lower()
 
-    if provider == "limrun":
+    if provider in ("adb", "local", "emulator"):
+        # FREE option: Local emulator via ADB
+        return ADBDevice(device_id=device_id, **kwargs)
+    elif provider == "limrun":
         return LimrunDevice(device_id=device_id, **kwargs)
     elif provider == "browserstack":
         return BrowserStackDevice(device_id=device_id, **kwargs)
     else:
-        raise ValueError(f"Unsupported cloud provider: {provider}")
+        raise ValueError(
+            f"Unsupported device provider: {provider}. "
+            f"Use 'adb' (free), 'limrun', or 'browserstack'."
+        )
+

@@ -122,12 +122,18 @@ async def execute_task(
         # Get device from session
         device = get_session_device(request.session_id)
 
-        # Create LLM client
-        llm_client = LLMClient(
-            api_key=settings.llm.api_key,
-            model=settings.llm.model_name,
-            base_url=settings.llm.api_base,
+        # Create LLM client with Gemini configuration
+        from app.llm.models import LLMConfig
+        
+        llm_config = LLMConfig(
+            api_key=settings.llm.gemini_api_key,
+            model=settings.llm.llm_model,
+            max_output_tokens=settings.llm.llm_max_output_tokens,
+            temperature=settings.llm.llm_temperature,
+            top_p=settings.llm.llm_top_p,
+            top_k=settings.llm.llm_top_k,
         )
+        llm_client = LLMClient(llm_config)
 
         # Create agent
         agent_config = AgentConfig(

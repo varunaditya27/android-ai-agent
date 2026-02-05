@@ -62,19 +62,30 @@ async def readiness_check(
     checks: dict[str, bool] = {}
     all_ready = True
 
-    # Check LLM configuration
-    llm_ready = bool(settings.llm.api_key)
+    # Check LLM configuration (Gemini API key)
+    llm_ready = bool(settings.llm.gemini_api_key)
     checks["llm_configured"] = llm_ready
     if not llm_ready:
         all_ready = False
-        logger.warning("LLM API key not configured")
+        logger.warning("Gemini API key not configured")
 
-    # Check cloud device configuration
-    cloud_ready = bool(settings.cloud_device.api_key)
-    checks["cloud_device_configured"] = cloud_ready
-    if not cloud_ready:
+    # Check device configuration
+    # For ADB/local, no API key needed; for cloud providers, check credentials
+    device_provider = settings.device.device_provider
+    if device_provider in ("adb", "local", "emulator"):
+        # Free local device - always ready if ADB is available
+        device_ready = True
+    elif device_provider == "limrun":
+        device_ready = bool(settings.device.limrun_api_key)
+    elif device_provider == "browserstack":
+        device_ready = bool(settings.device.browserstack_username and settings.device.browserstack_access_key)
+    else:
+        device_ready = False
+    
+    checks["device_configured"] = device_ready
+    if not device_ready:
         all_ready = False
-        logger.warning("Cloud device API key not configured")
+        logger.warning(f"Device provider '{device_provider}' not properly configured")
 
     if not all_ready:
         raise HTTPException(
