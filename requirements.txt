@@ -1,0 +1,46 @@
+# Android AI Agent - Dependencies
+# ==================================
+# A FastAPI-based AI agent for blind users to control Android devices
+
+# Core Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Async HTTP Client
+aiohttp>=3.9.0
+httpx>=0.26.0
+
+# LLM Integration (OpenAI-compatible)
+openai>=1.10.0
+
+# Image Processing
+Pillow>=10.2.0
+
+# XML Parsing (for accessibility tree)
+lxml>=5.0.0
+
+# Environment & Configuration
+python-dotenv>=1.0.0
+
+# Logging
+structlog>=24.1.0
+
+# Redis (for production session storage)
+redis>=5.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+
+# Development
+black>=24.0.0
+ruff>=0.1.0
+mypy>=1.8.0
+pre-commit>=3.6.0
+
+# Type stubs
+types-Pillow>=10.2.0
+types-redis>=4.6.0
