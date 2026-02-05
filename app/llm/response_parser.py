@@ -50,9 +50,12 @@ class ActionType(Enum):
 
 
 @dataclass
-class ActionResult:
+class ParsedAction:
     """
     Parsed action from LLM response.
+
+    Note: Named ParsedAction to distinguish from device.ActionResult 
+    which represents device action success/failure.
 
     Attributes:
         action_type: The type of action to perform.
@@ -75,6 +78,10 @@ class ActionResult:
         return self.action_type == ActionType.REQUEST_INPUT
 
 
+# Backwards compatibility alias
+ActionResult = ParsedAction
+
+
 @dataclass
 class ParsedResponse:
     """
@@ -87,7 +94,7 @@ class ParsedResponse:
     """
 
     thinking: str
-    action: ActionResult
+    action: ParsedAction
     raw: str = ""
 
 
