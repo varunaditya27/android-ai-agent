@@ -2,10 +2,11 @@
 
 **AI-powered mobile automation agent designed for blind and visually impaired users.**
 
-Transform natural language commands into Android device actions using advanced AI reasoning and cloud-based device farms.
+Transform natural language commands into Android device actions using advanced AI reasoning. Supports **FREE local emulator** via ADB or cloud device farms.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com/)
+[![Google Gemini](https://img.shields.io/badge/Gemini-2.0_Flash-4285F4.svg)](https://ai.google.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
@@ -34,22 +35,24 @@ The Android AI Agent is an intelligent automation system that enables users to c
 
 ### How It Works
 
-```
-User: "Open YouTube and search for relaxing music"
-         │
-         ▼
-    ┌─────────────────┐
-    │   AI Agent      │ ◄── ReAct (Reasoning + Acting) Loop
-    │   (GPT-4o)      │
-    └────────┬────────┘
-             │
-    ┌────────▼────────┐
-    │ Cloud Device    │ ◄── Limrun / BrowserStack
-    │ (Android Phone) │
-    └────────┬────────┘
-             │
-         ▼
-    Task Completed! 🎉
+```mermaid
+flowchart TD
+    A["👤 User: Open YouTube and search for music"] --> B["🤖 AI Agent<br/>(Google Gemini 2.0 Flash)"]
+    B --> C{"ReAct Loop"}
+    C --> D["👁️ Observe<br/>Screenshot + UI Tree"]
+    D --> E["🧠 Think<br/>LLM Analysis"]
+    E --> F["⚡ Act<br/>Tap/Swipe/Type"]
+    F --> G{"Task Complete?"}
+    G -->|No| C
+    G -->|Yes| H["✅ Task Completed!"]
+    
+    B -.-> I["📱 Device<br/>(ADB Local - FREE)"]
+    B -.-> J["☁️ Cloud Device<br/>(Limrun/BrowserStack)"]
+    
+    style A fill:#e1f5fe
+    style H fill:#c8e6c9
+    style I fill:#fff9c4
+    style J fill:#f3e5f5
 ```
 
 The agent uses a **ReAct (Reasoning + Acting)** loop:
@@ -66,10 +69,11 @@ The agent uses a **ReAct (Reasoning + Acting)** loop:
 
 - **Natural Language Control** - Describe tasks in plain English
 - **Multi-Step Reasoning** - Complex tasks broken into logical steps
-- **Visual Understanding** - GPT-4o vision analyzes screenshots
+- **Visual Understanding** - Gemini 2.0 Flash vision analyzes screenshots
 - **Accessibility Tree Parsing** - Structured UI element detection
 - **Authentication Handling** - Secure credential input prompts
 - **Error Recovery** - Automatic retry with alternative strategies
+- **FREE Local Device** - Use Android Emulator via ADB (zero cost!)
 
 ### ♿ Accessibility Features
 
@@ -80,7 +84,9 @@ The agent uses a **ReAct (Reasoning + Acting)** loop:
 
 ### 🔧 Technical Features
 
-- **Cloud Device Farms** - Limrun and BrowserStack support
+- **Local Device Control** - FREE ADB integration with emulator/USB devices
+- **Cloud Device Farms** - Optional Limrun and BrowserStack support
+- **Google Gemini LLM** - Multimodal vision with free tier available
 - **WebSocket Streaming** - Real-time progress updates
 - **Async Architecture** - High-performance async/await
 - **Modular Design** - Easy to extend and customize
@@ -91,8 +97,59 @@ The agent uses a **ReAct (Reasoning + Acting)** loop:
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    subgraph Client["Client Layer"]
+        CLI["CLI / Demo Script"]
+        REST["REST API Client"]
+        WS["WebSocket Client"]
+    end
+    
+    subgraph API["API Layer (FastAPI)"]
+        AgentRoutes["Agent Routes"]
+        SessionRoutes["Session Routes"]
+        HealthRoutes["Health Routes"]
+        WSHandler["WebSocket Handler"]
+    end
+    
+    subgraph Agent["Agent Core"]
+        ReAct["ReAct Loop"]
+        State["State Manager"]
+        Actions["Action Handler"]
+        Prompts["Prompt Builder"]
+    end
+    
+    subgraph LLM["LLM Layer"]
+        Gemini["Gemini Client<br/>(google-genai)"]
+        Parser["Response Parser"]
+        Models["Model Config"]
+    end
+    
+    subgraph Device["Device Layer"]
+        ADB["ADB Device<br/>(FREE - Local)"]
+        Cloud["Cloud Devices<br/>(Limrun/BrowserStack)"]
+        Screenshot["Screenshot Processor"]
+    end
+    
+    subgraph Perception["Perception Layer"]
+        UIParser["UI Parser"]
+        ElementDetector["Element Detector"]
+        AuthDetector["Auth Detector"]
+    end
+    
+    Client --> API
+    API --> Agent
+    Agent --> LLM
+    Agent --> Device
+    Device --> Perception
+    
+    style ADB fill:#c8e6c9
+    style Gemini fill:#bbdefb
 ```
-android-ai-agent/
+
+### Project Structure
+
+```
 ├── app/
 │   ├── __init__.py           # Package initialization
 │   ├── main.py               # FastAPI application entry
@@ -157,8 +214,9 @@ android-ai-agent/
 ### Prerequisites
 
 - Python 3.11+
-- OpenAI API key (for GPT-4o)
-- Cloud device provider credentials (Limrun or BrowserStack)
+- Google AI API key (Gemini) - [Get FREE key](https://aistudio.google.com/apikey)
+- **Option A (FREE)**: Android SDK with emulator OR Android device connected via USB
+- **Option B (Paid)**: Cloud device provider credentials (Limrun or BrowserStack)
 
 ### 1. Clone and Install
 
@@ -187,8 +245,12 @@ nano .env
 
 Required settings:
 ```env
-LLM_API_KEY=your-openai-api-key
-CLOUD_DEVICE_API_KEY=your-device-provider-key
+# Required: Get free key at https://aistudio.google.com/apikey
+GEMINI_API_KEY=your-gemini-api-key
+
+# Optional: Only if using cloud devices (default is FREE local ADB)
+# DEVICE_PROVIDER=limrun
+# LIMRUN_API_KEY=your-device-provider-key
 ```
 
 ### 3. Run the Server
@@ -241,8 +303,7 @@ docker build -t android-ai-agent .
 
 # Run container
 docker run -p 8000:8000 \
-  -e LLM_API_KEY=your-key \
-  -e CLOUD_DEVICE_API_KEY=your-key \
+  -e GEMINI_API_KEY=your-key \
   android-ai-agent
 ```
 
@@ -269,50 +330,76 @@ Create a `.env` file with the following settings:
 
 ```env
 # ===========================================
-# LLM Configuration
+# LLM Configuration (Google Gemini)
 # ===========================================
-LLM_API_KEY=your-openai-api-key
-LLM_MODEL_NAME=gpt-4o              # or gpt-4o-mini for cost savings
-LLM_API_BASE=https://api.openai.com/v1
-LLM_MAX_TOKENS=4096
+# Get FREE API key at: https://aistudio.google.com/apikey
+GEMINI_API_KEY=your-gemini-api-key
+LLM_MODEL=gemini-2.0-flash          # or gemini-1.5-pro, gemini-1.5-flash
+LLM_MAX_OUTPUT_TOKENS=8192
 LLM_TEMPERATURE=0.1
+LLM_TOP_P=0.95
+LLM_TOP_K=40
 
 # ===========================================
-# Cloud Device Configuration
+# Device Configuration
 # ===========================================
-CLOUD_DEVICE_PROVIDER=limrun       # or browserstack
-CLOUD_DEVICE_API_KEY=your-provider-key
-CLOUD_DEVICE_BASE_URL=https://api.limrun.com/v1
+# FREE Option (Recommended): Local ADB
+DEVICE_PROVIDER=adb                  # FREE! Uses local emulator/USB device
+ADB_DEVICE_SERIAL=                   # Leave empty for auto-detect
+
+# Paid Option: Cloud providers (uncomment to use)
+# DEVICE_PROVIDER=limrun
+# LIMRUN_API_KEY=your-limrun-key
+# LIMRUN_API_URL=https://api.limrun.com/v1
+
+# DEVICE_PROVIDER=browserstack
+# BROWSERSTACK_USERNAME=your-username
+# BROWSERSTACK_ACCESS_KEY=your-access-key
 
 # ===========================================
 # Server Configuration
 # ===========================================
 SERVER_HOST=0.0.0.0
 SERVER_PORT=8000
-SERVER_DEBUG=false
-SERVER_LOG_LEVEL=INFO
-SERVER_ENVIRONMENT=production
-SERVER_CORS_ORIGINS=*
+DEBUG=true
+LOG_LEVEL=INFO
+CORS_ORIGINS=*
 
 # ===========================================
 # Agent Configuration
 # ===========================================
 AGENT_MAX_STEPS=50
 AGENT_STEP_TIMEOUT=30
-AGENT_ACTION_DELAY=0.5
 ```
 
-### Supported Cloud Providers
+### Device Provider Comparison
 
-#### Limrun (Recommended)
-- High-performance real device cloud
-- Excellent API for automation
-- Good pricing for development
+```mermaid
+flowchart LR
+    subgraph FREE["FREE Options 🆓"]
+        ADB["ADB + Emulator"]
+        USB["ADB + USB Device"]
+    end
+    
+    subgraph PAID["Paid Options 💳"]
+        Limrun["Limrun Cloud"]
+        BS["BrowserStack"]
+    end
+    
+    ADB --> |"$0/month"| Local["Local Development"]
+    USB --> |"$0/month"| Local
+    Limrun --> |"Pay per minute"| Cloud["Production/Scale"]
+    BS --> |"Pay per minute"| Cloud
+    
+    style FREE fill:#c8e6c9
+    style PAID fill:#fff9c4
+```
 
-#### BrowserStack
-- Wide device selection
-- Appium-based automation
-- Enterprise-grade reliability
+| Provider | Cost | Latency | Setup | Best For |
+|----------|------|---------|-------|----------|
+| **ADB (Local)** | FREE | Very Low | Android SDK | Development, Testing |
+| **Limrun** | $$ | Medium | API Key | Production |
+| **BrowserStack** | $$$ | Medium | API Key | Enterprise |
 
 ---
 
@@ -403,20 +490,22 @@ import asyncio
 from app.agent import ReActAgent, AgentConfig
 from app.device.cloud_provider import create_cloud_device
 from app.llm.client import LLMClient
+from app.llm.models import LLMConfig
 
 async def main():
-    # Setup device
-    device = create_cloud_device(
-        provider="limrun",
-        api_key="your-key",
+    # Setup device (FREE local ADB)
+    device = await create_cloud_device(
+        provider="adb",  # FREE! Uses local emulator
+        device_id=None,  # Auto-detect device
     )
-    await device.allocate()
+    await device.connect()
     
-    # Setup LLM
-    llm = LLMClient(
-        api_key="your-openai-key",
-        model="gpt-4o",
+    # Setup LLM (Gemini - has free tier!)
+    llm_config = LLMConfig(
+        api_key="your-gemini-key",
+        model="gemini-2.0-flash",
     )
+    llm = LLMClient(llm_config)
     
     # Create agent
     agent = ReActAgent(
@@ -432,7 +521,7 @@ async def main():
     print(f"Result: {result.result}")
     
     # Cleanup
-    await device.release()
+    await device.disconnect()
 
 asyncio.run(main())
 ```
@@ -640,7 +729,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- OpenAI for GPT-4o vision capabilities
+- Google for Gemini multimodal AI capabilities
+- Android SDK team for ADB tooling
 - Limrun and BrowserStack for cloud device infrastructure
 - The accessibility community for invaluable feedback
 
