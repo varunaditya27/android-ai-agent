@@ -43,9 +43,16 @@ def add_app_context(
     return event_dict
 
 
-def setup_logging() -> None:
+def setup_logging(
+    level: str = "INFO",
+    json_logs: bool = False,
+) -> None:
     """
     Configure structured logging for the application.
+
+    Args:
+        level: Log level (DEBUG, INFO, WARNING, ERROR).
+        json_logs: If True, output JSON logs; otherwise colored console.
 
     Sets up structlog with appropriate processors based on the environment:
     - Development: Colored console output with pretty printing
@@ -53,8 +60,16 @@ def setup_logging() -> None:
 
     This should be called once at application startup.
     """
-    settings = get_settings()
-    is_debug = settings.server.debug
+    # Convert string level to logging level
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    
+    # Determine output mode - use json_logs param or fall back to checking debug setting
+    try:
+        settings = get_settings()
+        is_debug = settings.server.debug and not json_logs
+    except Exception:
+        # Settings may not be available during startup
+        is_debug = not json_logs
 
     # Shared processors for all environments
     shared_processors: list[Processor] = [
@@ -85,9 +100,7 @@ def setup_logging() -> None:
 
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, settings.server.log_level)
-        ),
+        wrapper_class=structlog.make_filtering_bound_logger(log_level),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
         cache_logger_on_first_use=True,
@@ -97,7 +110,7 @@ def setup_logging() -> None:
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,
-        level=getattr(logging, settings.server.log_level),
+        level=log_level,
     )
 
     # Reduce noise from common libraries

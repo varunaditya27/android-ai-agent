@@ -5,6 +5,15 @@ Demo Script
 
 Interactive demo of the Android AI Agent.
 
+This demo uses:
+- Google Gemini for LLM (FREE tier available)
+- Local Android Emulator via ADB (FREE)
+
+Prerequisites:
+    1. Get a Gemini API key: https://aistudio.google.com/apikey
+    2. Install Android Studio and create an emulator
+    3. Start the emulator before running this script
+
 Usage:
     python scripts/run_demo.py
 
@@ -25,8 +34,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.agent import ReActAgent, AgentConfig, StepResult
 from app.config import get_settings
-from app.device.cloud_provider import create_cloud_device
+from app.device import create_cloud_device, get_available_emulators
 from app.llm.client import LLMClient
+from app.llm.models import LLMConfig
 from app.utils.logger import setup_logging, get_logger
 
 
@@ -43,35 +53,66 @@ class DemoRunner:
     async def setup(self) -> bool:
         """Set up device and agent."""
         print("\n🚀 Setting up Android AI Agent...")
+        print("   Using FREE tools: Google Gemini + Local Emulator\n")
 
-        # Create device client
+        # Create device client (ADB for local emulator)
         try:
-            self.device = create_cloud_device(
-                provider=self.settings.cloud_device.provider,
-                api_key=self.settings.cloud_device.api_key,
-                base_url=self.settings.cloud_device.base_url or "",
+            provider = self.settings.device.device_provider
+            print(f"📱 Device provider: {provider}")
+            
+            if provider in ("adb", "local", "emulator"):
+                # Check for available emulators
+                emulators = get_available_emulators()
+                if emulators:
+                    print(f"   Available emulators: {', '.join(emulators)}")
+                
+            self.device = await create_cloud_device(
+                provider=provider,
+                device_id=self.settings.device.adb_device_serial or None,
             )
 
-            # Allocate device
-            print("📱 Allocating cloud device...")
-            device_info = await self.device.allocate()
-            print(f"   ✓ Connected to {device_info.device_name}")
+            # Connect to device
+            print("📱 Connecting to device...")
+            connected = await self.device.connect()
+            
+            if not connected:
+                print("❌ Failed to connect to device")
+                print("\n💡 Tips:")
+                print("   - Make sure Android Emulator is running")
+                print("   - Or connect a physical device via USB with USB debugging enabled")
+                print("   - Run 'adb devices' to check connected devices")
+                return False
+                
+            print(f"   ✓ Connected to {self.device.info.model if self.device.info else 'device'}")
+            if self.device.info:
+                print(f"   ✓ Android {self.device.info.os_version}")
+                print(f"   ✓ Screen: {self.device.info.screen_width}x{self.device.info.screen_height}")
 
         except Exception as e:
             print(f"❌ Failed to setup device: {e}")
+            print("\n💡 Make sure:")
+            print("   - Android SDK is installed (adb in PATH)")
+            print("   - Emulator is running or device is connected")
             return False
 
-        # Create LLM client
+        # Create LLM client (Gemini)
         try:
-            llm_client = LLMClient(
-                api_key=self.settings.llm.api_key,
-                model=self.settings.llm.model_name,
-                base_url=self.settings.llm.api_base,
+            llm_config = LLMConfig(
+                api_key=self.settings.llm.gemini_api_key,
+                model=self.settings.llm.llm_model,
+                max_output_tokens=self.settings.llm.llm_max_output_tokens,
+                temperature=self.settings.llm.llm_temperature,
+                top_p=self.settings.llm.llm_top_p,
+                top_k=self.settings.llm.llm_top_k,
             )
-            print(f"🤖 Using model: {self.settings.llm.model_name}")
+            llm_client = LLMClient(llm_config)
+            print(f"🤖 Using Gemini model: {self.settings.llm.llm_model}")
 
         except Exception as e:
             print(f"❌ Failed to setup LLM: {e}")
+            print("\n💡 Make sure:")
+            print("   - GEMINI_API_KEY is set in .env file")
+            print("   - Get free API key: https://aistudio.google.com/apikey")
             return False
 
         # Create agent
@@ -92,15 +133,17 @@ class DemoRunner:
     async def cleanup(self):
         """Clean up resources."""
         if self.device:
-            print("\n📱 Releasing device...")
-            await self.device.release()
-            print("✓ Device released")
+            print("\n📱 Disconnecting device...")
+            await self.device.disconnect()
+            print("✓ Device disconnected")
 
     def _on_step(self, step: StepResult):
         """Callback for each step."""
         status = "✓" if step.success else "✗"
         print(f"\n{status} Step: {step.action_type}")
-        print(f"   💭 {step.thinking[:100]}..." if len(step.thinking) > 100 else f"   💭 {step.thinking}")
+        
+        thinking_display = step.thinking[:100] + "..." if len(step.thinking) > 100 else step.thinking
+        print(f"   💭 {thinking_display}")
 
         if step.error:
             print(f"   ❌ Error: {step.error}")
@@ -109,8 +152,9 @@ class DemoRunner:
             print(f"\n🎉 Task finished: {step.action_message}")
 
     def _on_input_required(self, prompt: str) -> str:
-        """Handle input requests."""
+        """Handle input requests (for authentication flows)."""
         print(f"\n⌨️  Input required: {prompt}")
+        print("   (This is used for entering credentials, OTPs, etc.)")
         return input("   Enter value: ")
 
     async def run_task(self, task: str) -> bool:
@@ -137,6 +181,7 @@ class DemoRunner:
 
         except Exception as e:
             print(f"\n❌ Task execution error: {e}")
+            self.logger.exception("Task failed", error=str(e))
             return False
 
 
@@ -154,9 +199,9 @@ async def interactive_mode(runner: DemoRunner):
         "Open YouTube and search for relaxing music",
         "Open Settings and turn on WiFi",
         "Open Chrome and go to google.com",
-        "Send a text message to John saying 'Hello!'",
-        "Check the weather for today",
-        "Open Instagram and like the first post",
+        "Open the Calculator app",
+        "Take a screenshot",
+        "Open the Camera app",
     ]
 
     while True:
@@ -174,6 +219,7 @@ async def interactive_mode(runner: DemoRunner):
                 print("\nExample tasks:")
                 for i, t in enumerate(example_tasks, 1):
                     print(f"  {i}. {t}")
+                print("\nTip: Just type a number to run that task!")
                 continue
 
             # Check for numbered shortcut
@@ -196,13 +242,19 @@ async def interactive_mode(runner: DemoRunner):
 async def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Android AI Agent Demo",
+        description="Android AI Agent Demo (FREE - uses Gemini + Local Emulator)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python run_demo.py
   python run_demo.py --task "Open YouTube"
   python run_demo.py --task "Search for news" --no-interactive
+
+Setup (all FREE):
+  1. Get Gemini API key: https://aistudio.google.com/apikey
+  2. Install Android Studio and create an emulator
+  3. Start the emulator
+  4. Run this script!
         """,
     )
     parser.add_argument(
@@ -231,6 +283,8 @@ Examples:
     ╔═══════════════════════════════════════════════════════╗
     ║           Android AI Agent - Demo                     ║
     ║   AI-powered mobile automation for accessibility      ║
+    ║                                                       ║
+    ║   🆓 100% FREE: Gemini API + Local Emulator          ║
     ╚═══════════════════════════════════════════════════════╝
     """)
 
@@ -239,16 +293,19 @@ Examples:
         settings = get_settings()
     except Exception as e:
         print(f"❌ Configuration error: {e}")
-        print("\nMake sure you have configured your .env file.")
+        print("\n💡 Make sure you have:")
+        print("   1. Copied .env.example to .env")
+        print("   2. Set GEMINI_API_KEY in .env")
+        print("\nGet a FREE API key: https://aistudio.google.com/apikey")
         return 1
 
-    # Check for API keys
-    if not settings.llm.api_key:
-        print("❌ LLM_API_KEY not configured")
-        return 1
-
-    if not settings.cloud_device.api_key:
-        print("❌ CLOUD_DEVICE_API_KEY not configured")
+    # Check for API key
+    if not settings.llm.gemini_api_key or settings.llm.gemini_api_key == "your-gemini-api-key":
+        print("❌ GEMINI_API_KEY not configured")
+        print("\n💡 Steps to fix:")
+        print("   1. Go to https://aistudio.google.com/apikey")
+        print("   2. Create a FREE API key")
+        print("   3. Set GEMINI_API_KEY in your .env file")
         return 1
 
     # Create runner
