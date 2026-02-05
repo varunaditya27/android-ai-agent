@@ -1,0 +1,154 @@
+# Android AI Agent - Docker Compose Configuration
+# Orchestrates all services for development and production
+
+version: "3.9"
+
+services:
+  # ============================================
+  # Main Application Service
+  # ============================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    image: android-ai-agent:${VERSION:-latest}
+    container_name: android-ai-agent
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      # LLM Configuration
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_MODEL_NAME=${LLM_MODEL_NAME:-gpt-4o}
+      - LLM_API_BASE=${LLM_API_BASE:-https://api.openai.com/v1}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-4096}
+      
+      # Cloud Device Configuration
+      - CLOUD_DEVICE_PROVIDER=${CLOUD_DEVICE_PROVIDER:-limrun}
+      - CLOUD_DEVICE_API_KEY=${CLOUD_DEVICE_API_KEY}
+      - CLOUD_DEVICE_BASE_URL=${CLOUD_DEVICE_BASE_URL}
+      
+      # Server Configuration
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8000
+      - SERVER_DEBUG=${SERVER_DEBUG:-false}
+      - SERVER_LOG_LEVEL=${SERVER_LOG_LEVEL:-INFO}
+      - SERVER_ENVIRONMENT=${SERVER_ENVIRONMENT:-production}
+      - SERVER_CORS_ORIGINS=${SERVER_CORS_ORIGINS:-*}
+      
+      # Agent Configuration
+      - AGENT_MAX_STEPS=${AGENT_MAX_STEPS:-50}
+      - AGENT_STEP_TIMEOUT=${AGENT_STEP_TIMEOUT:-30}
+      
+      # Redis (if using)
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    volumes:
+      - app-logs:/app/logs
+      - app-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ============================================
+  # Redis Service (Session Storage)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: agent-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  # ============================================
+  # Development Service (with hot reload)
+  # ============================================
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: android-ai-agent:dev
+    container_name: android-ai-agent-dev
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_MODEL_NAME=${LLM_MODEL_NAME:-gpt-4o}
+      - CLOUD_DEVICE_PROVIDER=${CLOUD_DEVICE_PROVIDER:-limrun}
+      - CLOUD_DEVICE_API_KEY=${CLOUD_DEVICE_API_KEY}
+      - CLOUD_DEVICE_BASE_URL=${CLOUD_DEVICE_BASE_URL}
+      - SERVER_DEBUG=true
+      - SERVER_LOG_LEVEL=DEBUG
+      - SERVER_ENVIRONMENT=development
+    volumes:
+      - ./app:/app/app:ro
+      - ./tests:/app/tests:ro
+      - ./scripts:/app/scripts:ro
+    depends_on:
+      - redis
+    networks:
+      - agent-network
+    profiles:
+      - dev
+
+  # ============================================
+  # Test Runner Service
+  # ============================================
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: android-ai-agent:test
+    container_name: android-ai-agent-test
+    environment:
+      - LLM_API_KEY=test-key
+      - CLOUD_DEVICE_API_KEY=test-key
+      - SERVER_DEBUG=true
+    volumes:
+      - ./app:/app/app:ro
+      - ./tests:/app/tests:ro
+      - ./coverage:/app/coverage
+    command: pytest tests/ -v --cov=app --cov-report=html:/app/coverage
+    networks:
+      - agent-network
+    profiles:
+      - test
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  agent-network:
+    driver: bridge
+    name: android-ai-agent-network
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  redis-data:
+    name: agent-redis-data
+  app-logs:
+    name: agent-app-logs
+  app-data:
+    name: agent-app-data
