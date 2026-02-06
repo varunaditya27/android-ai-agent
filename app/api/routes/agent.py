@@ -344,26 +344,14 @@ async def quick_action(
             result = await device.tap(x, y)
         elif action == "swipe":
             direction = params.get("direction", "up")
-            screen_info = await device.get_screen_info()
-            width = screen_info.get("width", 1080)
-            height = screen_info.get("height", 2400)
-            cx, cy = width // 2, height // 2
-
-            swipe_map = {
-                "up": (cx, cy + 300, cx, cy - 300),
-                "down": (cx, cy - 300, cx, cy + 300),
-                "left": (cx + 300, cy, cx - 300, cy),
-                "right": (cx - 300, cy, cx + 300, cy),
-            }
-            coords = swipe_map.get(direction, swipe_map["up"])
-            result = await device.swipe(*coords)
+            result = await device.swipe_direction(direction)
         elif action == "type":
             text = params.get("text", "")
             result = await device.type_text(text)
         elif action == "back":
-            result = await device.press_back()
+            result = await device.press_key("KEYCODE_BACK")
         elif action == "home":
-            result = await device.press_home()
+            result = await device.press_key("KEYCODE_HOME")
         elif action == "launch":
             package = params.get("package", "")
             result = await device.launch_app(package)
@@ -375,7 +363,7 @@ async def quick_action(
 
         return {
             "success": result.success if result else False,
-            "message": result.message if result else "No result",
+            "error": result.error if result else None,
         }
 
     except HTTPException:

@@ -239,11 +239,17 @@ class WebSocketManager:
         settings = get_settings()
 
         # Create LLM client
-        llm_client = LLMClient(
-            api_key=settings.llm.api_key,
-            model=settings.llm.model_name,
-            base_url=settings.llm.api_base,
+        from app.llm.models import LLMConfig
+
+        llm_config = LLMConfig(
+            api_key=settings.llm.gemini_api_key,
+            model=settings.llm.llm_model,
+            max_output_tokens=settings.llm.llm_max_output_tokens,
+            temperature=settings.llm.llm_temperature,
+            top_p=settings.llm.llm_top_p,
+            top_k=settings.llm.llm_top_k,
         )
+        llm_client = LLMClient(llm_config)
 
         # Create input event for this session
         self._input_events[session_id] = asyncio.Event()
@@ -351,7 +357,7 @@ class WebSocketManager:
         agent = self._agents.get(session_id)
         if agent and agent.state.last_screenshot:
             # Resize for sending
-            resized = resize_for_llm(agent.state.last_screenshot, max_size=800)
+            resized = resize_for_llm(agent.state.last_screenshot, max_width=800, max_height=800)
             await self.send_message(
                 session_id,
                 WSMessage(

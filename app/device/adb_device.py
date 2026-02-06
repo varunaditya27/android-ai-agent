@@ -375,16 +375,16 @@ class ADBDevice(CloudDevice):
         except Exception as e:
             logger.error("Failed to get UI hierarchy", error=str(e))
             # Return empty hierarchy on failure
-            return {"nodes": []}
+            return {"elements": []}
 
     def _parse_ui_xml(self, xml_content: str) -> dict[str, Any]:
         """Parse uiautomator XML dump into dictionary."""
         try:
             root = ET.fromstring(xml_content)
-            return {"nodes": self._parse_node(root)}
+            return {"elements": self._parse_node(root)}
         except ET.ParseError as e:
             logger.error("Failed to parse UI XML", error=str(e))
-            return {"nodes": []}
+            return {"elements": []}
 
     def _parse_node(self, element: ET.Element) -> list[dict[str, Any]]:
         """Recursively parse XML nodes."""
@@ -394,28 +394,37 @@ class ADBDevice(CloudDevice):
             # Extract bounds "[x1,y1][x2,y2]"
             bounds_str = node.get("bounds", "[0,0][0,0]")
             bounds_match = re.findall(r"\[(\d+),(\d+)\]", bounds_str)
+            left = int(bounds_match[0][0]) if bounds_match else 0
+            top = int(bounds_match[0][1]) if bounds_match else 0
+            right = int(bounds_match[1][0]) if len(bounds_match) > 1 else 0
+            bottom = int(bounds_match[1][1]) if len(bounds_match) > 1 else 0
             bounds = {
-                "left": int(bounds_match[0][0]) if bounds_match else 0,
-                "top": int(bounds_match[0][1]) if bounds_match else 0,
-                "right": int(bounds_match[1][0]) if len(bounds_match) > 1 else 0,
-                "bottom": int(bounds_match[1][1]) if len(bounds_match) > 1 else 0,
+                "left": left,
+                "top": top,
+                "right": right,
+                "bottom": bottom,
+                "center_x": (left + right) // 2,
+                "center_y": (top + bottom) // 2,
+                "width": right - left,
+                "height": bottom - top,
             }
 
             node_data = {
                 "class": node.get("class", ""),
                 "text": node.get("text", ""),
-                "content-desc": node.get("content-desc", ""),
-                "resource-id": node.get("resource-id", ""),
+                "content_desc": node.get("content-desc", ""),
+                "resource_id": node.get("resource-id", ""),
                 "package": node.get("package", ""),
                 "clickable": node.get("clickable", "false") == "true",
                 "focusable": node.get("focusable", "false") == "true",
                 "enabled": node.get("enabled", "true") == "true",
+                "scrollable": node.get("scrollable", "false") == "true",
+                "long_clickable": node.get("long-clickable", "false") == "true",
+                "checkable": node.get("checkable", "false") == "true",
+                "checked": node.get("checked", "false") == "true",
+                "focused": node.get("focused", "false") == "true",
                 "bounds": bounds,
             }
-
-            # Calculate center coordinates
-            node_data["center_x"] = (bounds["left"] + bounds["right"]) // 2
-            node_data["center_y"] = (bounds["top"] + bounds["bottom"]) // 2
 
             nodes.append(node_data)
 

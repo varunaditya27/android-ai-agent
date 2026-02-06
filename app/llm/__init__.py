@@ -12,7 +12,7 @@ This package contains:
 Uses google-genai SDK for Google AI's Gemini models.
 """
 
-from app.llm.client import LLMClient, LLMError, encode_image_to_base64
+from app.llm.client import LLMClient, LLMError, RateLimitError, encode_image_to_base64
 from app.llm.models import LLMConfig, ModelType, LLMResponse, Message, ImageContent
 from app.llm.response_parser import ParsedAction, ActionResult, parse_action, parse_response
 
@@ -20,6 +20,7 @@ __all__ = [
     "LLMClient",
     "LLMConfig",
     "LLMError",
+    "RateLimitError",
     "LLMResponse",
     "ModelType",
     "Message",

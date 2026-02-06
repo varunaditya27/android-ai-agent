@@ -32,7 +32,7 @@ from app.agent.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.agent.state import AgentState, TaskStatus
 from app.device.cloud_provider import CloudDevice
 from app.device.screenshot import resize_for_llm
-from app.llm.client import LLMClient
+from app.llm.client import LLMClient, LLMError, RateLimitError
 from app.llm.response_parser import ActionType, parse_response, format_action_for_log
 from app.perception.auth_detector import AuthDetector
 from app.perception.element_detector import ElementDetector
@@ -66,6 +66,8 @@ class AgentConfig:
     enable_accessibility_tree: bool = True
     action_delay: float = 0.5
     verbose: bool = True
+    min_step_interval: float = 2.0  # minimum seconds between LLM calls
+    rate_limit_max_retries: int = 3  # retries per step on rate-limit
 
 
 @dataclass
@@ -162,6 +164,9 @@ class ReActAgent:
         # State
         self.state = AgentState()
 
+        # Rate-limit tracking
+        self._last_llm_call_time: float = 0.0
+
         logger.info(
             "ReActAgent initialized",
             max_steps=self.config.max_steps,
@@ -190,8 +195,16 @@ class ReActAgent:
                     self.state.fail(error_msg)
                     break
 
-                # Execute one step
-                step_result = await self._execute_step()
+                # --- Rate-limit pacing: wait between LLM calls ---
+                now = time.time()
+                elapsed = now - self._last_llm_call_time
+                if elapsed < self.config.min_step_interval:
+                    wait = self.config.min_step_interval - elapsed
+                    await asyncio.sleep(wait)
+                self._last_llm_call_time = time.time()
+
+                # Execute one step (with rate-limit retry)
+                step_result = await self._execute_step_with_retry()
 
                 # Notify callback
                 if self.on_step:
@@ -239,6 +252,59 @@ class ReActAgent:
             error=self.state.result if self.state.status == TaskStatus.FAILED else None,
             history=[step.to_dict() for step in self.state.history],
         )
+
+    async def _execute_step_with_retry(self) -> StepResult:
+        """
+        Execute a step with automatic retry on rate-limit errors.
+
+        Wraps _execute_step to catch RateLimitError, wait, and retry
+        up to config.rate_limit_max_retries times before giving up.
+        """
+        for attempt in range(1, self.config.rate_limit_max_retries + 1):
+            result = await self._execute_step()
+
+            # If the step error is a rate-limit, wait and retry
+            if (
+                not result.success
+                and result.error
+                and ("RESOURCE_EXHAUSTED" in result.error or "429" in result.error)
+            ):
+                if attempt < self.config.rate_limit_max_retries:
+                    # Try to extract delay from the error message
+                    import re as _re
+                    delay = 30.0
+                    match = _re.search(r"retry in ([\d.]+)s", result.error, _re.IGNORECASE)
+                    if match:
+                        try:
+                            delay = float(match.group(1))
+                        except ValueError:
+                            pass
+
+                    logger.warning(
+                        "Rate limited during step, waiting before retry",
+                        attempt=attempt,
+                        max_retries=self.config.rate_limit_max_retries,
+                        wait_seconds=round(delay, 1),
+                    )
+                    # Notify callback so the user sees the wait
+                    if self.on_step:
+                        wait_result = StepResult(
+                            success=False,
+                            finished=False,
+                            thinking=f"Rate limited — waiting {round(delay)}s before retrying…",
+                            action_type="WAIT_RATE_LIMIT",
+                            error=f"Rate limited (attempt {attempt}/{self.config.rate_limit_max_retries}). Waiting {round(delay)}s…",
+                        )
+                        self.on_step(wait_result)
+                    await asyncio.sleep(delay)
+                    # Update the LLM call timestamp
+                    self._last_llm_call_time = time.time()
+                    continue
+
+            return result
+
+        # All retries exhausted – return the last (failed) result
+        return result
 
     async def _execute_step(self) -> StepResult:
         """

@@ -40,7 +40,7 @@ def mock_device() -> MagicMock:
 
     device.get_ui_hierarchy = AsyncMock(
         return_value={
-            "nodes": [
+            "elements": [
                 {"class": "android.widget.TextView", "text": "Home", "clickable": True, "bounds": {"left": 0, "top": 0, "right": 100, "bottom": 50}, "center_x": 50, "center_y": 25},
                 {"class": "android.widget.EditText", "text": "Search", "clickable": True, "bounds": {"left": 0, "top": 50, "right": 1080, "bottom": 150}, "center_x": 540, "center_y": 100},
                 {"class": "android.widget.Button", "text": "Settings", "clickable": True, "bounds": {"left": 0, "top": 150, "right": 200, "bottom": 200}, "center_x": 100, "center_y": 175},

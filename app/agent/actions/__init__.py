@@ -14,18 +14,27 @@ This package contains:
 """
 
 from app.agent.actions.handler import ActionHandler, ActionExecutionResult
-from app.agent.actions.tap import TapAction
-from app.agent.actions.swipe import SwipeAction
-from app.agent.actions.type_text import TypeAction
-from app.agent.actions.launch_app import LaunchAppAction
-from app.agent.actions.system import SystemAction
+from app.agent.actions.tap import tap_element, tap_coordinates, find_tap_target
+from app.agent.actions.swipe import swipe, scroll_up, scroll_down, SwipeDirection
+from app.agent.actions.type_text import type_text, type_in_element
+from app.agent.actions.launch_app import launch_app, resolve_package_name
+from app.agent.actions.system import SystemActions, press_back, press_home
 
 __all__ = [
     "ActionHandler",
     "ActionExecutionResult",
-    "TapAction",
-    "SwipeAction",
-    "TypeAction",
-    "LaunchAppAction",
-    "SystemAction",
+    "tap_element",
+    "tap_coordinates",
+    "find_tap_target",
+    "swipe",
+    "scroll_up",
+    "scroll_down",
+    "SwipeDirection",
+    "type_text",
+    "type_in_element",
+    "launch_app",
+    "resolve_package_name",
+    "SystemActions",
+    "press_back",
+    "press_home",
 ]

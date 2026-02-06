@@ -13,14 +13,23 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# Shared config that all settings classes use to load .env
+_shared_config = SettingsConfigDict(
+    env_file=".env",
+    env_file_encoding="utf-8",
+    env_prefix="",
+    extra="ignore",
+)
+
+
 class LLMSettings(BaseSettings):
     """Google Gemini LLM configuration settings."""
 
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
+    model_config = _shared_config
 
     gemini_api_key: str = Field(..., description="Google AI API key for Gemini")
     llm_model: str = Field(
-        default="gemini-2.0-flash",
+        default="gemini-2.5-pro",
         description="Gemini model for vision tasks (gemini-2.0-flash, gemini-1.5-pro, etc.)",
     )
     llm_max_output_tokens: int = Field(default=8192, description="Max output tokens for responses")
@@ -32,7 +41,7 @@ class LLMSettings(BaseSettings):
 class DeviceSettings(BaseSettings):
     """Device provider configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
+    model_config = _shared_config
 
     device_provider: Literal["adb", "local", "emulator", "limrun", "browserstack"] = Field(
         default="adb",
@@ -64,7 +73,7 @@ class DeviceSettings(BaseSettings):
 class ServerSettings(BaseSettings):
     """Server configuration settings."""
 
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
+    model_config = _shared_config
 
     server_host: str = Field(default="0.0.0.0", description="Server host")
     server_port: int = Field(default=8000, description="Server port")
@@ -96,7 +105,7 @@ class ServerSettings(BaseSettings):
 class AgentSettings(BaseSettings):
     """Agent configuration settings."""
 
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
+    model_config = _shared_config
 
     max_steps: int = Field(default=50, description="Maximum steps per task")
     step_timeout: float = Field(default=30.0, description="Step timeout in seconds")

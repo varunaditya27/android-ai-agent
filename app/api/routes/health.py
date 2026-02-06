@@ -142,8 +142,8 @@ async def service_info(
         "version": __version__,
         "environment": settings.server.environment,
         "config": {
-            "llm_model": settings.llm.model_name,
-            "cloud_provider": settings.cloud_device.provider,
+            "llm_model": settings.llm.llm_model,
+            "cloud_provider": settings.device.device_provider,
             "max_steps": settings.agent.max_steps,
             "debug_mode": settings.server.debug,
         },

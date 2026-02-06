@@ -138,7 +138,7 @@ async def create_session(
         logger.info(
             "Session created",
             session_id=session_id,
-            device_name=device_info.device_name if device_info else "unknown",
+            device_model=device_info.model if device_info else "unknown",
         )
 
         return SessionResponse(

@@ -25,6 +25,8 @@ Usage:
 
 import asyncio
 import base64
+import re
+import time
 from typing import AsyncIterator, Optional
 
 from google import genai
@@ -36,11 +38,46 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Rate-limit defaults
+_DEFAULT_RETRY_DELAY = 30.0  # seconds
+_MAX_RETRIES_RATE_LIMIT = 5
+_BACKOFF_MULTIPLIER = 1.5
+
 
 class LLMError(Exception):
     """Exception raised for LLM-related errors."""
 
     pass
+
+
+class RateLimitError(LLMError):
+    """Raised when the API returns a 429 rate-limit / quota error."""
+
+    def __init__(self, message: str, retry_after: float = _DEFAULT_RETRY_DELAY):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _extract_retry_delay(error: Exception) -> float:
+    """Extract the recommended retry delay from a Gemini 429 error.
+
+    Parses strings like 'Please retry in 27.085023799s.' from the error
+    message.  Falls back to the default delay if parsing fails.
+    """
+    error_str = str(error)
+    match = re.search(r"retry in ([\d.]+)s", error_str, re.IGNORECASE)
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            pass
+    return _DEFAULT_RETRY_DELAY
+
+
+def _is_rate_limit_error(error: Exception) -> bool:
+    """Return True if the error is a 429 / RESOURCE_EXHAUSTED error."""
+    error_str = str(error)
+    return "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
 
 
 class LLMClient:
@@ -99,52 +136,67 @@ class LLMClient:
             system_instruction=system_prompt if system_prompt else None,
         )
 
-        try:
-            # Use async method for non-blocking operation
-            response = await asyncio.to_thread(
-                self._client.models.generate_content,
-                model=self.config.model,
-                contents=contents,
-                config=config,
-            )
+        last_error: Exception | None = None
+        for attempt in range(1, _MAX_RETRIES_RATE_LIMIT + 1):
+            try:
+                # Use async method for non-blocking operation
+                response = await asyncio.to_thread(
+                    self._client.models.generate_content,
+                    model=self.config.model,
+                    contents=contents,
+                    config=config,
+                )
 
-            # Extract text from response
-            text_content = ""
-            if response.text:
-                text_content = response.text
-            elif response.candidates and response.candidates[0].content.parts:
-                text_content = response.candidates[0].content.parts[0].text
+                # Extract text from response
+                text_content = ""
+                if response.text:
+                    text_content = response.text
+                elif response.candidates and response.candidates[0].content.parts:
+                    text_content = response.candidates[0].content.parts[0].text
 
-            # Extract usage metadata
-            usage = {}
-            if response.usage_metadata:
-                usage = {
-                    "prompt_tokens": response.usage_metadata.prompt_token_count or 0,
-                    "candidates_tokens": response.usage_metadata.candidates_token_count or 0,
-                    "total_tokens": response.usage_metadata.total_token_count or 0,
-                }
+                # Extract usage metadata
+                usage = {}
+                if response.usage_metadata:
+                    usage = {
+                        "prompt_tokens": response.usage_metadata.prompt_token_count or 0,
+                        "candidates_tokens": response.usage_metadata.candidates_token_count or 0,
+                        "total_tokens": response.usage_metadata.total_token_count or 0,
+                    }
 
-            # Extract finish reason
-            finish_reason = None
-            if response.candidates and response.candidates[0].finish_reason:
-                finish_reason = str(response.candidates[0].finish_reason)
+                # Extract finish reason
+                finish_reason = None
+                if response.candidates and response.candidates[0].finish_reason:
+                    finish_reason = str(response.candidates[0].finish_reason)
 
-            return LLMResponse(
-                content=text_content,
-                model=self.config.model,
-                usage=usage,
-                finish_reason=finish_reason,
-            )
+                return LLMResponse(
+                    content=text_content,
+                    model=self.config.model,
+                    usage=usage,
+                    finish_reason=finish_reason,
+                )
 
-        except APIError as e:
-            logger.error("Gemini API error", error=str(e))
-            raise LLMError(f"API error: {e}") from e
-        except ClientError as e:
-            logger.error("Gemini client error", error=str(e))
-            raise LLMError(f"Client error: {e}") from e
-        except Exception as e:
-            logger.error("Unexpected error", error=str(e))
-            raise LLMError(f"Unexpected error: {e}") from e
+            except (APIError, ClientError) as e:
+                last_error = e
+                if _is_rate_limit_error(e):
+                    delay = _extract_retry_delay(e)
+                    logger.warning(
+                        "Rate limited by Gemini API, waiting before retry",
+                        attempt=attempt,
+                        max_attempts=_MAX_RETRIES_RATE_LIMIT,
+                        retry_after_seconds=round(delay, 1),
+                    )
+                    if attempt < _MAX_RETRIES_RATE_LIMIT:
+                        await asyncio.sleep(delay)
+                        continue
+                    raise RateLimitError(str(e), retry_after=delay) from e
+                logger.error("Gemini API error", error=str(e))
+                raise LLMError(f"API error: {e}") from e
+            except Exception as e:
+                logger.error("Unexpected error", error=str(e))
+                raise LLMError(f"Unexpected error: {e}") from e
+
+        # Should not reach here, but just in case
+        raise LLMError(f"Failed after {_MAX_RETRIES_RATE_LIMIT} attempts: {last_error}")
 
     async def complete_with_vision(
         self,
@@ -175,7 +227,7 @@ class LLMClient:
             data=base64.b64decode(image_data),
             mime_type=media_type,
         )
-        text_part = types.Part.from_text(prompt)
+        text_part = types.Part.from_text(text=prompt)
         
         contents = [image_part, text_part]
 
@@ -188,60 +240,75 @@ class LLMClient:
             system_instruction=system_prompt if system_prompt else None,
         )
 
-        try:
-            # Use async method for non-blocking operation
-            response = await asyncio.to_thread(
-                self._client.models.generate_content,
-                model=self.config.model,
-                contents=contents,
-                config=config,
-            )
+        last_error: Exception | None = None
+        for attempt in range(1, _MAX_RETRIES_RATE_LIMIT + 1):
+            try:
+                # Use async method for non-blocking operation
+                response = await asyncio.to_thread(
+                    self._client.models.generate_content,
+                    model=self.config.model,
+                    contents=contents,
+                    config=config,
+                )
 
-            # Extract text from response
-            text_content = ""
-            if response.text:
-                text_content = response.text
-            elif response.candidates and response.candidates[0].content.parts:
-                for part in response.candidates[0].content.parts:
-                    if hasattr(part, 'text') and part.text:
-                        text_content += part.text
+                # Extract text from response
+                text_content = ""
+                if response.text:
+                    text_content = response.text
+                elif response.candidates and response.candidates[0].content.parts:
+                    for part in response.candidates[0].content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            text_content += part.text
 
-            # Extract usage metadata
-            usage = {}
-            if response.usage_metadata:
-                usage = {
-                    "prompt_tokens": response.usage_metadata.prompt_token_count or 0,
-                    "candidates_tokens": response.usage_metadata.candidates_token_count or 0,
-                    "total_tokens": response.usage_metadata.total_token_count or 0,
-                }
+                # Extract usage metadata
+                usage = {}
+                if response.usage_metadata:
+                    usage = {
+                        "prompt_tokens": response.usage_metadata.prompt_token_count or 0,
+                        "candidates_tokens": response.usage_metadata.candidates_token_count or 0,
+                        "total_tokens": response.usage_metadata.total_token_count or 0,
+                    }
 
-            logger.debug(
-                "Vision completion successful",
-                model=self.config.model,
-                tokens=usage.get("total_tokens", 0),
-            )
+                logger.debug(
+                    "Vision completion successful",
+                    model=self.config.model,
+                    tokens=usage.get("total_tokens", 0),
+                )
 
-            # Extract finish reason
-            finish_reason = None
-            if response.candidates and response.candidates[0].finish_reason:
-                finish_reason = str(response.candidates[0].finish_reason)
+                # Extract finish reason
+                finish_reason = None
+                if response.candidates and response.candidates[0].finish_reason:
+                    finish_reason = str(response.candidates[0].finish_reason)
 
-            return LLMResponse(
-                content=text_content,
-                model=self.config.model,
-                usage=usage,
-                finish_reason=finish_reason,
-            )
+                return LLMResponse(
+                    content=text_content,
+                    model=self.config.model,
+                    usage=usage,
+                    finish_reason=finish_reason,
+                )
 
-        except APIError as e:
-            logger.error("Gemini API error", error=str(e))
-            raise LLMError(f"API error: {e}") from e
-        except ClientError as e:
-            logger.error("Gemini client error", error=str(e))
-            raise LLMError(f"Client error: {e}") from e
-        except Exception as e:
-            logger.error("Unexpected error during vision completion", error=str(e))
-            raise LLMError(f"Unexpected error: {e}") from e
+            except (APIError, ClientError) as e:
+                last_error = e
+                if _is_rate_limit_error(e):
+                    delay = _extract_retry_delay(e)
+                    logger.warning(
+                        "Rate limited by Gemini API, waiting before retry",
+                        attempt=attempt,
+                        max_attempts=_MAX_RETRIES_RATE_LIMIT,
+                        retry_after_seconds=round(delay, 1),
+                    )
+                    if attempt < _MAX_RETRIES_RATE_LIMIT:
+                        await asyncio.sleep(delay)
+                        continue
+                    raise RateLimitError(str(e), retry_after=delay) from e
+                logger.error("Gemini API error", error=str(e))
+                raise LLMError(f"API error: {e}") from e
+            except Exception as e:
+                logger.error("Unexpected error during vision completion", error=str(e))
+                raise LLMError(f"Unexpected error: {e}") from e
+
+        # Should not reach here, but just in case
+        raise LLMError(f"Failed after {_MAX_RETRIES_RATE_LIMIT} attempts: {last_error}")
 
     async def stream_completion(
         self,
@@ -326,7 +393,7 @@ class LLMClient:
             data=base64.b64decode(image_data),
             mime_type=media_type,
         )
-        text_part = types.Part.from_text(prompt)
+        text_part = types.Part.from_text(text=prompt)
         contents = [image_part, text_part]
 
         config = types.GenerateContentConfig(
@@ -379,7 +446,7 @@ class LLMClient:
                 contents.append(
                     types.Content(
                         role=role,
-                        parts=[types.Part.from_text(msg.content if isinstance(msg.content, str) else str(msg.content))],
+                        parts=[types.Part.from_text(text=msg.content if isinstance(msg.content, str) else str(msg.content))],
                     )
                 )
 
@@ -387,7 +454,7 @@ class LLMClient:
         contents.append(
             types.Content(
                 role="user",
-                parts=[types.Part.from_text(prompt)],
+                parts=[types.Part.from_text(text=prompt)],
             )
         )
 
