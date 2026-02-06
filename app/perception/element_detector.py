@@ -17,7 +17,7 @@ Usage:
 
 from typing import Any, Optional
 
-from app.llm.client import LLMClient
+from app.llm.client import LLMClient, RateLimitError
 from app.perception.ui_parser import UIElement, UIParser
 from app.utils.logger import get_logger
 
@@ -160,6 +160,9 @@ Be thorough but avoid duplicates. Return only the JSON array."""
             logger.debug("Vision detection completed", element_count=len(vision_elements))
             return vision_elements
 
+        except RateLimitError:
+            # Re-raise rate limit error so parent can handle it
+            raise
         except Exception as e:
             logger.warning("Vision detection failed", error=str(e))
             return []

@@ -326,35 +326,10 @@ class ActionHandler:
                 error="Launch action requires app name",
             )
 
-        # Map common app names to package names
-        package_map = {
-            "youtube": "com.google.android.youtube",
-            "chrome": "com.android.chrome",
-            "gmail": "com.google.android.gm",
-            "maps": "com.google.android.apps.maps",
-            "photos": "com.google.android.apps.photos",
-            "play store": "com.android.vending",
-            "settings": "com.android.settings",
-            "camera": "com.android.camera2",
-            "messages": "com.google.android.apps.messaging",
-            "phone": "com.android.dialer",
-            "contacts": "com.android.contacts",
-            "calendar": "com.google.android.calendar",
-            "clock": "com.google.android.deskclock",
-            "calculator": "com.google.android.calculator",
-            "files": "com.google.android.apps.nbu.files",
-            "drive": "com.google.android.apps.docs",
-            "chatgpt": "com.openai.chatgpt",
-            "whatsapp": "com.whatsapp",
-            "instagram": "com.instagram.android",
-            "facebook": "com.facebook.katana",
-            "twitter": "com.twitter.android",
-            "x": "com.twitter.android",
-            "spotify": "com.spotify.music",
-            "netflix": "com.netflix.mediaclient",
-        }
+        # Use the comprehensive package resolver with 80+ apps and fuzzy matching
+        from app.agent.actions.launch_app import resolve_package_name
 
-        package_name = package_map.get(app_name.lower(), app_name)
+        package_name = resolve_package_name(app_name)
 
         result = await self.device.launch_app(package_name)
 

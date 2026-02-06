@@ -3,7 +3,7 @@ LLM Model Configuration
 =======================
 
 Data classes and configuration for LLM models.
-Uses Google Gemini as the primary LLM provider.
+Supports both Google Gemini and Groq providers.
 """
 
 from dataclasses import dataclass, field
@@ -12,17 +12,25 @@ from typing import Optional
 
 
 class ModelType(Enum):
-    """Supported Gemini model types."""
+    """Supported model types across providers."""
 
-    # Gemini 2.0 models (latest)
+    # Gemini 2.5 models (latest, best free-tier limits)
+    GEMINI_25_FLASH = "gemini-2.5-flash"
+    GEMINI_25_PRO = "gemini-2.5-pro"
+
+    # Gemini 2.0 models
     GEMINI_2_FLASH = "gemini-2.0-flash"
     GEMINI_2_FLASH_LITE = "gemini-2.0-flash-lite"
     GEMINI_2_FLASH_EXP = "gemini-2.0-flash-exp"
-    
+
     # Gemini 1.5 models (stable)
     GEMINI_15_PRO = "gemini-1.5-pro"
     GEMINI_15_FLASH = "gemini-1.5-flash"
     GEMINI_15_FLASH_8B = "gemini-1.5-flash-8b"
+
+    # Groq models (via Llama 4 Scout / Maverick)
+    GROQ_LLAMA4_SCOUT = "meta-llama/llama-4-scout-17b-16e-instruct"
+    GROQ_LLAMA4_MAVERICK = "meta-llama/llama-4-maverick-17b-128e-instruct"
 
     @property
     def supports_vision(self) -> bool:
@@ -73,9 +81,9 @@ class LLMConfig:
         top_k: Top-k sampling parameter.
     """
 
-    model: str = "gemini-2.0-flash"
+    model: str = "gemini-2.5-flash"
     api_key: str = ""
-    max_output_tokens: int = 8192
+    max_output_tokens: int = 2048
     temperature: float = 0.1
     timeout: float = 60.0
     max_retries: int = 3

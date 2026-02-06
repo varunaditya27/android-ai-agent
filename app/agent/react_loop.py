@@ -32,7 +32,6 @@ from app.agent.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.agent.state import AgentState, TaskStatus
 from app.device.cloud_provider import CloudDevice
 from app.device.screenshot import resize_for_llm
-from app.llm.client import LLMClient, LLMError, RateLimitError
 from app.llm.response_parser import ActionType, parse_response, format_action_for_log
 from app.perception.auth_detector import AuthDetector
 from app.perception.element_detector import ElementDetector
@@ -40,6 +39,15 @@ from app.perception.ui_parser import UIParser
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# LLM error types — imported from both clients to keep the loop provider-agnostic.
+# Both Gemini (client.py) and Groq (groq_client.py) define compatible
+# LLMError and RateLimitError classes with the same interface.
+try:
+    from app.llm.client import LLMError, RateLimitError
+except ImportError:
+    # Fallback if gemini client isn't available
+    from app.llm.groq_client import LLMError, RateLimitError  # type: ignore[assignment]
 
 
 @dataclass
@@ -58,16 +66,16 @@ class AgentConfig:
         verbose: Enable verbose logging.
     """
 
-    max_steps: int = 50
+    max_steps: int = 30
     step_timeout: float = 30.0
     max_consecutive_errors: int = 5
     screenshot_quality: int = 85
-    enable_vision: bool = True
+    enable_vision: bool = False  # disabled: rely on accessibility tree only (saves 1 API call/step)
     enable_accessibility_tree: bool = True
     action_delay: float = 0.5
     verbose: bool = True
-    min_step_interval: float = 2.0  # minimum seconds between LLM calls
-    rate_limit_max_retries: int = 3  # retries per step on rate-limit
+    min_step_interval: float = 3.0  # 3s = safe for Groq 30 RPM; increase to 12s for Gemini 5 RPM
+    rate_limit_max_retries: int = 5  # retries per step on rate-limit
 
 
 @dataclass
@@ -108,6 +116,7 @@ class TaskResult:
         duration_seconds: Total time taken.
         error: Error message if failed.
         history: Full step history.
+        api_calls: Number of LLM API calls made.
     """
 
     success: bool
@@ -116,6 +125,7 @@ class TaskResult:
     duration_seconds: float = 0.0
     error: Optional[str] = None
     history: list[dict] = field(default_factory=list)
+    api_calls: int = 0
 
 
 class ReActAgent:
@@ -128,7 +138,7 @@ class ReActAgent:
 
     def __init__(
         self,
-        llm_client: LLMClient,
+        llm_client,
         device: CloudDevice,
         config: Optional[AgentConfig] = None,
         on_step: Optional[Callable[[StepResult], None]] = None,
@@ -138,7 +148,9 @@ class ReActAgent:
         Initialize the ReAct agent.
 
         Args:
-            llm_client: LLM client for reasoning.
+            llm_client: LLM client for reasoning (LLMClient or GroqLLMClient).
+                        Must implement complete_with_vision(), get_api_call_count(),
+                        and reset_api_call_count().
             device: Cloud device to control.
             config: Agent configuration.
             on_step: Callback for each step completion.
@@ -185,6 +197,9 @@ class ReActAgent:
         """
         logger.info("Starting task", task=task)
         self.state.start_task(task)
+        
+        # Reset API call counter for this task
+        self.llm.reset_api_call_count()
 
         try:
             while self.state.current_step < self.config.max_steps:
@@ -224,6 +239,20 @@ class ReActAgent:
                         type_result = await self.device.type_text(user_input)
                         if not type_result.success:
                             logger.warning("Failed to type user input")
+                        else:
+                            # Auto-press Enter to submit (works for most password/OTP fields)
+                            await asyncio.sleep(0.3)
+                            enter_result = await self.device.press_key("KEYCODE_ENTER")
+                            if enter_result.success:
+                                logger.info("Pressed Enter after input")
+                                # Wait for screen to update after submit
+                                await asyncio.sleep(1.5)
+                            else:
+                                # If Enter doesn't work, set flag so next step knows to find submit button
+                                self.state.input_needs_submit = True
+                                # Try to hide keyboard so submit button becomes visible
+                                await self.device.press_key("KEYCODE_BACK")
+                                await asyncio.sleep(0.5)
                     else:
                         # No input handler - fail the task
                         self.state.fail("User input required but no handler provided")
@@ -243,6 +272,10 @@ class ReActAgent:
             logger.exception("Task failed with exception", error=str(e))
             self.state.fail(str(e))
 
+        # Log API call count
+        api_calls = self.llm.get_api_call_count()
+        logger.info("Task completed", api_calls_made=api_calls, steps_taken=self.state.current_step)
+
         # Build result
         return TaskResult(
             success=self.state.status == TaskStatus.COMPLETED,
@@ -251,6 +284,7 @@ class ReActAgent:
             duration_seconds=self.state.duration_seconds,
             error=self.state.result if self.state.status == TaskStatus.FAILED else None,
             history=[step.to_dict() for step in self.state.history],
+            api_calls=api_calls,
         )
 
     async def _execute_step_with_retry(self) -> StepResult:
@@ -323,11 +357,11 @@ class ReActAgent:
             # Resize screenshot for LLM
             screenshot_for_llm = resize_for_llm(screenshot_b64)
 
-            # Detect UI elements
+            # Detect UI elements from accessibility tree only (no extra LLM call)
             elements = await self.element_detector.detect_elements(
                 screenshot_for_llm,
                 ui_hierarchy,
-                use_vision_fallback=self.config.enable_vision,
+                use_vision_fallback=False,
             )
 
             self.state.last_screenshot = screenshot_b64
@@ -340,12 +374,19 @@ class ReActAgent:
             auth_screen = self.auth_detector.detect_auth(elements)
 
             # 2. THINK: Ask LLM for next action
+            # Detect loops before building prompt
+            loop_warning = self.state.detect_action_loop(lookback=5)
+            additional_context = self._build_additional_context(auth_screen, loop_warning)
+            
             user_prompt = build_user_prompt(
                 task=self.state.task,
                 elements=elements,
                 history_summary=self.state.get_history_summary(),
                 current_app=self.state.current_app,
-                additional_context=self._build_additional_context(auth_screen),
+                additional_context=additional_context,
+                progress_status=self.state.progress_status,
+                current_step=self.state.current_step + 1,
+                max_steps=self.config.max_steps,
             )
 
             llm_response = await self.llm.complete_with_vision(
@@ -426,29 +467,79 @@ class ReActAgent:
             )
         except Exception as e:
             logger.exception("Step failed", error=str(e))
+            
+            # Record failed step to increment step counter and prevent infinite loops
+            # Note: screenshot_b64 might not be defined if it failed during capture
+            img_b64 = screenshot_b64 if 'screenshot_b64' in locals() else None
+            
+            self.state.record_step(
+                thinking="Step execution encountered a system error.",
+                action_type="SYSTEM_ERROR",
+                action_params={},
+                success=False,
+                error=f"System Error: {str(e)}",
+                screenshot_b64=img_b64,
+            )
+            
             return StepResult(
                 success=False,
                 finished=False,
                 error=str(e),
             )
 
-    def _build_additional_context(self, auth_screen: Any) -> str:
-        """Build additional context for the prompt."""
+    def _build_additional_context(self, auth_screen: Any, loop_warning: Optional[str] = None) -> str:
+        """Build additional context for the prompt.
+        
+        Args:
+            auth_screen: Detected authentication screen info.
+            loop_warning: Warning message if agent is in a loop.
+            
+        Returns:
+            Formatted context string with warnings and hints.
+        """
         context_parts = []
 
+        # HIGHEST PRIORITY: Loop detection
+        if loop_warning:
+            context_parts.append(f"🚨 {loop_warning}")
+
+        # HIGH PRIORITY: Submit button after credentials
+        if self.state.input_needs_submit:
+            context_parts.append(
+                "⚠️ IMPORTANT: Credentials were just entered. Now you MUST find and tap the submit/continue/next button to proceed.\n"
+                "Look for buttons with text like: 'Next', 'Continue', 'Submit', 'Sign in', 'Login', 'Done', or arrow icons."
+            )
+            self.state.input_needs_submit = False  # Reset flag
+
+        # Authentication detection
         if auth_screen:
+            auth_type_hints = {
+                "LOGIN": "login screen with email and password fields",
+                "PASSWORD_ONLY": "password entry screen",
+                "OTP": "OTP/verification code screen",
+                "TWO_FACTOR": "two-factor authentication screen",
+                "REGISTER": "registration/signup screen",
+            }
+            hint = auth_type_hints.get(auth_screen.auth_type.name, "authentication screen")
             context_parts.append(
-                f"NOTE: This appears to be a {auth_screen.auth_type.name} screen. "
-                "Use RequestInput to get user credentials."
+                f"🔐 AUTHENTICATION DETECTED: This is a {hint}.\n"
+                f"CRITICAL: You MUST use RequestInput to ask the user for credentials.\n"
+                f"NEVER type passwords, PINs, or codes directly - they must come from the user via RequestInput.\n"
+                f"Example: do(action=\"RequestInput\", prompt=\"Please enter your password\")"
             )
 
-        if self.state.error_count > 0:
+        # Recent errors
+        if self.state.error_count >= 2:
             context_parts.append(
-                f"WARNING: {self.state.error_count} recent error(s). "
-                "Consider trying a different approach."
+                f"⚠️ WARNING: {self.state.error_count} consecutive errors. "
+                "Your current approach is not working. Try a completely different strategy."
+            )
+        elif self.state.error_count > 0:
+            context_parts.append(
+                f"ℹ️ Note: {self.state.error_count} recent error. Consider adjusting your approach."
             )
 
-        return "\n".join(context_parts) if context_parts else ""
+        return "\n\n".join(context_parts) if context_parts else ""
 
     def get_state(self) -> dict[str, Any]:
         """Get current agent state as dictionary."""

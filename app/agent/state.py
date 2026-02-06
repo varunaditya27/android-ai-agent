@@ -104,6 +104,8 @@ class AgentState:
     error_count: int = 0
     input_required: bool = False
     input_prompt: Optional[str] = None
+    input_needs_submit: bool = False  # Flag: credentials entered but need to tap submit button
+    progress_status: str = ""  # Track what has been accomplished toward the goal
     result: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -123,6 +125,7 @@ class AgentState:
         self.error_count = 0
         self.input_required = False
         self.input_prompt = None
+        self.progress_status = "No progress yet."
         self.result = None
         self.started_at = datetime.now()
         self.completed_at = None
@@ -288,14 +291,65 @@ class AgentState:
         if not self.history:
             return "No previous actions taken."
 
-        lines = ["Recent actions:"]
-        for step in self.get_recent_history(3):
-            status = "✓" if step.success else "✗"
+        lines = ["Recent action history:"]
+        # Show last 5 steps for better context
+        for step in self.get_recent_history(5):
+            status = "Successful" if step.success else "Failed"
+            # Include action parameters for clarity
+            action_desc = f"{step.action_type}"
+            if step.action_params:
+                # Show key params (app, element_id, text preview, direction)
+                if "app" in step.action_params:
+                    action_desc += f" app={step.action_params['app']}"
+                if "element_id" in step.action_params:
+                    action_desc += f" element={step.action_params['element_id']}"
+                if "text" in step.action_params:
+                    text_preview = step.action_params['text'][:30]
+                    action_desc += f" text='{text_preview}...'"
+                if "direction" in step.action_params:
+                    action_desc += f" direction={step.action_params['direction']}"
+            
             lines.append(
-                f"  {status} Step {step.step_number}: {step.action_type} - {step.thinking[:50]}..."
+                f"  Step {step.step_number}: Action: {action_desc} | Outcome: {status}"
             )
+            if step.error:
+                lines.append(f"    Error: {step.error[:80]}...")
 
         return "\n".join(lines)
+
+    def detect_action_loop(self, lookback: int = 5) -> Optional[str]:
+        """
+        Detect if agent is repeating similar actions in a loop.
+
+        Args:
+            lookback: Number of recent steps to check.
+
+        Returns:
+            Warning message if loop detected, None otherwise.
+        """
+        if len(self.history) < 3:
+            return None
+
+        recent = self.get_recent_history(lookback)
+        action_types = [step.action_type for step in recent]
+
+        # Check for repeated action types
+        if len(set(action_types)) == 1 and len(action_types) >= 3:
+            return f"WARNING: You have repeated the same action '{action_types[0]}' {len(action_types)} times. Try a different approach."
+
+        # Check for alternating patterns (e.g., Tap -> Back -> Tap -> Back)
+        if len(action_types) >= 4:
+            if action_types[-1] == action_types[-3] and action_types[-2] == action_types[-4]:
+                return f"WARNING: You are alternating between '{action_types[-1]}' and '{action_types[-2]}'. This pattern suggests you're stuck. Try a different approach."
+
+        # Check for repeated failures on same action type
+        recent_failures = [s for s in recent if not s.success]
+        if len(recent_failures) >= 3:
+            failure_types = [s.action_type for s in recent_failures]
+            if len(set(failure_types)) == 1:
+                return f"WARNING: Action '{failure_types[0]}' has failed {len(recent_failures)} times recently. Strongly consider a different action."
+
+        return None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert state to dictionary for serialization."""
@@ -308,6 +362,7 @@ class AgentState:
             "error_count": self.error_count,
             "input_required": self.input_required,
             "input_prompt": self.input_prompt,
+            "progress_status": self.progress_status,
             "result": self.result,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,

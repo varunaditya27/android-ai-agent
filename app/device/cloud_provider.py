@@ -8,7 +8,7 @@ Supports operations like screenshot capture, UI hierarchy, and input actions.
 Usage:
     from app.device import create_cloud_device
 
-    device = await create_cloud_device("limrun", device_id="pixel-6")
+    device = await create_cloud_device("aws_device_farm")
     await device.connect()
     screenshot = await device.capture_screenshot()
     await device.tap(500, 300)
@@ -279,7 +279,7 @@ async def create_cloud_device(
     Factory function to create device instances.
 
     Args:
-        provider: Provider name ('adb', 'local', 'limrun', 'browserstack').
+        provider: Provider name ('adb', 'local', 'emulator', 'aws_device_farm').
         device_id: Optional specific device ID.
         **kwargs: Additional provider-specific arguments.
 
@@ -290,25 +290,22 @@ async def create_cloud_device(
         ValueError: If provider is not supported.
 
     Note:
-        'adb' and 'local' are FREE options using Android Emulator.
-        'limrun' and 'browserstack' are paid cloud services.
+        'adb' / 'local' / 'emulator' are FREE options using Android Emulator.
+        'aws_device_farm' uses AWS Device Farm cloud devices (paid).
     """
     from app.device.adb_device import ADBDevice
-    from app.device.limrun_client import LimrunDevice
-    from app.device.browserstack import BrowserStackDevice
+    from app.device.aws_device_farm import AWSDeviceFarmDevice
 
     provider = provider.lower()
 
     if provider in ("adb", "local", "emulator"):
         # FREE option: Local emulator via ADB
         return ADBDevice(device_id=device_id, **kwargs)
-    elif provider == "limrun":
-        return LimrunDevice(device_id=device_id, **kwargs)
-    elif provider == "browserstack":
-        return BrowserStackDevice(device_id=device_id, **kwargs)
+    elif provider == "aws_device_farm":
+        return AWSDeviceFarmDevice(device_id=device_id, **kwargs)
     else:
         raise ValueError(
             f"Unsupported device provider: {provider}. "
-            f"Use 'adb' (free), 'limrun', or 'browserstack'."
+            f"Use 'adb' (free) or 'aws_device_farm' (AWS cloud)."
         )
 

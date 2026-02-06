@@ -5,14 +5,15 @@ Demo Script
 
 Interactive demo of the Android AI Agent.
 
-This demo uses:
-- Google Gemini for LLM (FREE tier available)
-- Local Android Emulator via ADB (FREE)
+This demo supports two LLM providers:
+- **Groq** (recommended, FREE): Llama 4 Scout vision — 1,000 req/day
+- **Gemini**: Google AI with optional key rotation
 
 Prerequisites:
-    1. Get a Gemini API key: https://aistudio.google.com/apikey
-    2. Install Android Studio and create an emulator
-    3. Start the emulator before running this script
+    1. Set LLM_PROVIDER=groq (or gemini) in .env
+    2. For Groq: set GROQ_API_KEY in .env (get free → https://console.groq.com/keys)
+       For Gemini: set GEMINI_API_KEY or GEMINI_API_KEYS in .env
+    3. Start an Android emulator OR configure AWS Device Farm
 
 Usage:
     python scripts/run_demo.py
@@ -38,6 +39,9 @@ from app.agent import ReActAgent, AgentConfig, StepResult
 from app.config import get_settings
 from app.device import create_cloud_device, get_available_emulators
 from app.llm.client import LLMClient, RateLimitError
+from app.llm.groq_client import GroqLLMClient
+from app.llm.groq_client import RateLimitError as GroqRateLimitError
+from app.llm.key_rotator import ApiKeyRotator
 from app.llm.models import LLMConfig
 from app.utils.logger import setup_logging, get_logger
 
@@ -84,6 +88,8 @@ class DemoRunner:
                         print(f"   Available emulators: {', '.join(emulators)}")
                 except Exception:
                     pass  # non-critical
+            elif provider == "aws_device_farm":
+                print("   ☁️  Using AWS Device Farm (session may take 1-3 min to start)")
 
             self.device = await create_cloud_device(
                 provider=provider,
@@ -113,27 +119,66 @@ class DemoRunner:
             return False
         except Exception as e:
             print(f"❌ Failed to setup device: {e}")
-            print("\n💡 Make sure:")
-            print("   • Android SDK is installed (adb in PATH)")
-            print("   • Emulator is running or device is connected")
+            if provider == "aws_device_farm":
+                print("\n💡 Make sure:")
+                print("   • AWS credentials are configured (aws configure)")
+                print("   • AWS_DEVICE_FARM_PROJECT_ARN is set in .env")
+                print("   • Your AWS account has Device Farm access")
+            else:
+                print("\n💡 Make sure:")
+                print("   • Android SDK is installed (adb in PATH)")
+                print("   • Emulator is running or device is connected")
+                print("   • Run 'adb devices' to check connected devices")
             return False
 
         # ── LLM ───────────────────────────────────────────────────
         try:
-            llm_config = LLMConfig(
-                api_key=self.settings.llm.gemini_api_key,
-                model=self.settings.llm.llm_model,
-                max_output_tokens=self.settings.llm.llm_max_output_tokens,
-                temperature=self.settings.llm.llm_temperature,
-                top_p=self.settings.llm.llm_top_p,
-                top_k=self.settings.llm.llm_top_k,
-            )
-            self.llm_client = LLMClient(llm_config)
-            print(f"🤖 Using Gemini model: {self.settings.llm.llm_model}")
+            provider = self.settings.llm.llm_provider
+
+            if provider == "groq":
+                # Groq: Llama 4 Scout vision (free, 1000 RPD)
+                groq_key = self.settings.llm.groq_api_key
+                groq_model = self.settings.llm.groq_model
+                llm_config = LLMConfig(
+                    api_key=groq_key,
+                    model=groq_model,
+                    max_output_tokens=self.settings.llm.llm_max_output_tokens,
+                    temperature=self.settings.llm.llm_temperature,
+                    top_p=self.settings.llm.llm_top_p,
+                    top_k=self.settings.llm.llm_top_k,
+                )
+                self.llm_client = GroqLLMClient(llm_config)
+                print(f"🤖 Using Groq model: {groq_model}")
+                print(f"   Free tier: 1,000 requests/day, 30 req/min")
+                print(f"   Max output tokens: {self.settings.llm.llm_max_output_tokens}")
+            else:
+                # Gemini: Google AI (with key rotation)
+                all_api_keys = self.settings.llm.get_all_api_keys()
+                rotator = ApiKeyRotator(all_api_keys) if len(all_api_keys) > 1 else None
+
+                llm_config = LLMConfig(
+                    api_key=all_api_keys[0],
+                    model=self.settings.llm.llm_model,
+                    max_output_tokens=self.settings.llm.llm_max_output_tokens,
+                    temperature=self.settings.llm.llm_temperature,
+                    top_p=self.settings.llm.llm_top_p,
+                    top_k=self.settings.llm.llm_top_k,
+                )
+                self.llm_client = LLMClient(llm_config, key_rotator=rotator)
+                print(f"🤖 Using Gemini model: {self.settings.llm.llm_model}")
+                print(f"   Max output tokens: {self.settings.llm.llm_max_output_tokens}")
+                if rotator:
+                    print(f"   🔑 Key rotation enabled: {rotator.total_keys} API keys")
+                else:
+                    print("   🔑 Using single API key")
         except ValueError as e:
             print(f"❌ LLM configuration error: {e}")
-            print("\n💡 Make sure GEMINI_API_KEY is set in your .env file.")
-            print("   Get a free key → https://aistudio.google.com/apikey")
+            if self.settings.llm.llm_provider == "groq":
+                print("\n💡 Make sure GROQ_API_KEY is set in your .env file.")
+                print("   Get a free key → https://console.groq.com/keys")
+            else:
+                print("\n💡 Make sure GEMINI_API_KEY or GEMINI_API_KEYS is set in your .env file.")
+                print("   Get a free key → https://aistudio.google.com/apikey")
             return False
         except Exception as e:
             print(f"❌ Failed to setup LLM: {e}")
@@ -146,8 +191,10 @@ class DemoRunner:
             config=AgentConfig(
                 max_steps=self.settings.agent.max_steps,
                 verbose=True,
-                min_step_interval=2.0,       # at least 2s between LLM calls
-                rate_limit_max_retries=3,     # retry up to 3× on rate-limit
+                min_step_interval=self.settings.agent.min_step_interval,
+                rate_limit_max_retries=self.settings.agent.rate_limit_max_retries,
+                enable_vision=self.settings.agent.enable_vision,
+                enable_accessibility_tree=self.settings.agent.enable_accessibility_tree,
             ),
             on_step=self._on_step,
             on_input_required=self._on_input_required,
@@ -218,13 +265,15 @@ class DemoRunner:
                 print(f"   Error: {error_display}")
 
             print(f"   Steps: {result.steps_taken}")
+            print(f"   API Calls: {result.api_calls}")
             print(f"   Duration: {result.duration_seconds:.1f}s")
             print("=" * 50)
 
             return result.success
 
-        except RateLimitError as e:
-            print(f"\n⏳ Rate limited by Gemini API.")
+        except (RateLimitError, GroqRateLimitError) as e:
+            provider_name = "Groq" if self.settings.llm.llm_provider == "groq" else "Gemini"
+            print(f"\n⏳ Rate limited by {provider_name} API.")
             print(f"   The API asks to wait ~{round(e.retry_after)}s.")
             print("   💡 You can retry the task in a moment, or use a different API key.")
             return False
@@ -252,12 +301,12 @@ async def interactive_mode(runner: DemoRunner):
     print("=" * 50)
 
     example_tasks = [
+        "Open ChatGPT and ask what's the capital of France",
         "Open YouTube and search for relaxing music",
-        "Open Settings and turn on WiFi",
-        "Open Chrome and go to google.com",
-        "Open the Calculator app",
-        "Take a screenshot",
-        "Open the Camera app",
+        "Open Gmail and check my latest email",
+        "Open Chrome and go to google.com and search for AI news",
+        "Open Settings and check the battery level",
+        "Open the Calculator app and compute 127 * 43",
     ]
 
     while True:
@@ -298,7 +347,7 @@ async def interactive_mode(runner: DemoRunner):
 async def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Android AI Agent Demo (FREE — uses Gemini + Local Emulator)",
+        description="Android AI Agent Demo — Groq / Gemini + ADB / AWS Device Farm",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -306,10 +355,12 @@ Examples:
   python run_demo.py --task "Open YouTube"
   python run_demo.py --task "Search for news" --no-interactive
 
-Setup (all FREE):
-  1. Get Gemini API key: https://aistudio.google.com/apikey
-  2. Install Android Studio and create an emulator
-  3. Start the emulator
+Setup:
+  1. Set LLM_PROVIDER=groq (recommended) or LLM_PROVIDER=gemini in .env
+  2a. (Groq)   Get free key: https://console.groq.com/keys → set GROQ_API_KEY
+  2b. (Gemini) Get free key: https://aistudio.google.com/apikey → set GEMINI_API_KEY
+  3a. (Local)  Start an Android emulator  — DEVICE_PROVIDER=adb
+  3b. (Cloud)  Configure AWS Device Farm — DEVICE_PROVIDER=aws_device_farm
   4. Run this script!
         """,
     )
@@ -332,12 +383,12 @@ Setup (all FREE):
     # Print banner
     print(
         """
-    ╔═══════════════════════════════════════════════════════╗
-    ║           Android AI Agent — Demo                     ║
-    ║   AI-powered mobile automation for accessibility      ║
-    ║                                                       ║
-    ║   🆓 100% FREE: Gemini API + Local Emulator          ║
-    ╚═══════════════════════════════════════════════════════╝
+    ╔════════════════════════════════════════════════════════╗
+    ║                Android AI Agent — Demo                 ║
+    ║    AI-powered mobile automation for accessibility      ║
+    ║                                                        ║
+    ║      Groq / Gemini  •  ADB / AWS Device Farm           ║
+    ╚════════════════════════════════════════════════════════╝
     """
     )
 
@@ -352,15 +403,31 @@ Setup (all FREE):
         print("\nGet a FREE API key: https://aistudio.google.com/apikey")
         return 1
 
-    # Validate API key
-    api_key = getattr(settings.llm, "gemini_api_key", "")
-    if not api_key or api_key in ("your-gemini-api-key",):
-        print("❌ GEMINI_API_KEY not configured")
-        print("\n💡 Steps to fix:")
-        print("   1. Go to https://aistudio.google.com/apikey")
-        print("   2. Create a FREE API key")
-        print("   3. Set GEMINI_API_KEY in your .env file")
-        return 1
+    # Validate API key(s) based on selected provider
+    llm_provider = settings.llm.llm_provider
+    placeholder_keys = ("your-gemini-api-key", "your-groq-api-key", "")
+
+    if llm_provider == "groq":
+        groq_key = settings.llm.groq_api_key
+        if not groq_key or groq_key in placeholder_keys:
+            print("❌ No Groq API key configured")
+            print("\n💡 Steps to fix:")
+            print("   1. Go to https://console.groq.com/keys")
+            print("   2. Create a FREE API key")
+            print("   3. Set GROQ_API_KEY in your .env file")
+            print("   4. (Optional) Set LLM_PROVIDER=groq in .env")
+            return 1
+    else:
+        all_keys = settings.llm.get_all_api_keys()
+        valid_keys = [k for k in all_keys if k not in placeholder_keys]
+        if not valid_keys:
+            print("❌ No Gemini API key configured")
+            print("\n💡 Steps to fix:")
+            print("   1. Go to https://aistudio.google.com/apikey")
+            print("   2. Create a FREE API key")
+            print("   3. Set GEMINI_API_KEY (single) or GEMINI_API_KEYS (comma-separated) in .env")
+            print("   Tip: Keys from different Google Cloud projects multiply your quota!")
+            return 1
 
     # Create & run
     runner = DemoRunner(settings)

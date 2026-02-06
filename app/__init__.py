@@ -10,7 +10,7 @@ through natural language commands, with a focus on accessibility.
 Modules:
     - api: FastAPI routes and WebSocket handlers
     - agent: ReAct loop implementation and state management
-    - device: Cloud device abstraction (Limrun, BrowserStack)
+    - device: Device abstraction (local ADB, AWS Device Farm)
     - perception: UI parsing and element detection
     - llm: LLM client and response parsing
     - accessibility: TalkBack integration and announcements

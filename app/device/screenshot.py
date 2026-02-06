@@ -76,22 +76,25 @@ def compress_screenshot(
 
 def resize_for_llm(
     screenshot_b64: str,
-    max_width: int = 1024,
-    max_height: int = 1024,
+    max_width: int = 512,
+    max_height: int = 512,
+    jpeg_quality: int = 50,
 ) -> str:
     """
-    Resize screenshot to fit LLM input size limits.
+    Resize and compress screenshot for LLM input.
 
-    Most vision LLMs work best with images around 1024x1024.
-    This maintains aspect ratio while fitting within limits.
+    Uses JPEG compression at low quality and small dimensions
+    to minimize token consumption. A 512px image uses ~258 tokens
+    vs ~1032 tokens for 1024px (per Gemini docs).
 
     Args:
         screenshot_b64: Base64-encoded screenshot.
         max_width: Maximum width in pixels.
         max_height: Maximum height in pixels.
+        jpeg_quality: JPEG quality (1-100). Lower = fewer tokens.
 
     Returns:
-        Base64-encoded resized PNG image.
+        Base64-encoded compressed JPEG image.
     """
     image_bytes = base64.b64decode(screenshot_b64)
     image = Image.open(io.BytesIO(image_bytes))
@@ -110,9 +113,20 @@ def resize_for_llm(
             new=f"{new_width}x{new_height}",
         )
 
-    # Save as PNG (lossless)
+    # Convert to RGB (JPEG doesn't support alpha)
+    if image.mode in ("RGBA", "P"):
+        image = image.convert("RGB")
+
+    # Save as JPEG with low quality for minimal token usage
     output = io.BytesIO()
-    image.save(output, format="PNG", optimize=True)
+    image.save(output, format="JPEG", quality=jpeg_quality, optimize=True)
+
+    compressed_size = len(output.getvalue())
+    logger.debug(
+        "Screenshot compressed for LLM",
+        original_kb=len(image_bytes) // 1024,
+        compressed_kb=compressed_size // 1024,
+    )
 
     return base64.b64encode(output.getvalue()).decode("utf-8")
 

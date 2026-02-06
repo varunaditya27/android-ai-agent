@@ -94,7 +94,8 @@ class AuthDetector:
     ]
 
     PASSWORD_KEYWORDS = [
-        "password", "passcode", "pin", "secret",
+        "password", "passcode", "pin", "secret", "pwd",
+        "enter password", "your password", "type password",
     ]
 
     EMAIL_KEYWORDS = [
@@ -114,7 +115,8 @@ class AuthDetector:
 
     SUBMIT_KEYWORDS = [
         "sign in", "log in", "login", "submit", "continue",
-        "next", "verify", "confirm",
+        "next", "verify", "confirm", "done", "ok", "proceed",
+        "enter", "go", "→", "➔", "⇨", "arrow",  # Gmail uses arrow icons
     ]
 
     def detect_auth(self, elements: list[UIElement]) -> Optional[AuthScreen]:
@@ -187,14 +189,23 @@ class AuthDetector:
 
     def _is_password_only_screen(self, text: str, elements: list[UIElement]) -> bool:
         """Check if this is a password-only entry screen."""
-        # Has password field but no email field
+        # Has password field
         has_password = any(kw in text for kw in self.PASSWORD_KEYWORDS)
-        has_email = any(kw in text for kw in self.EMAIL_KEYWORDS)
-
-        # Count editable fields - should be just one (password)
+        
+        # Check if there's an editable field that looks like a password
+        password_fields = [
+            elem for elem in elements 
+            if elem.editable and any(
+                kw in (elem.text + " " + elem.content_desc + " " + elem.resource_id).lower()
+                for kw in self.PASSWORD_KEYWORDS
+            )
+        ]
+        
+        # Count total editable fields
         editable_count = sum(1 for elem in elements if elem.editable)
 
-        return has_password and not has_email and editable_count == 1
+        # Password screen: has password keywords AND (only 1 editable field OR has specific password field)
+        return has_password and (editable_count == 1 or len(password_fields) > 0)
 
     def _is_otp_screen(self, text: str, elements: list[UIElement]) -> bool:
         """Check if this is an OTP verification screen."""

@@ -75,10 +75,9 @@ async def readiness_check(
     if device_provider in ("adb", "local", "emulator"):
         # Free local device - always ready if ADB is available
         device_ready = True
-    elif device_provider == "limrun":
-        device_ready = bool(settings.device.limrun_api_key)
-    elif device_provider == "browserstack":
-        device_ready = bool(settings.device.browserstack_username and settings.device.browserstack_access_key)
+    elif device_provider == "aws_device_farm":
+        # AWS Device Farm requires a project ARN at minimum
+        device_ready = bool(settings.device.aws_device_farm_project_arn)
     else:
         device_ready = False
     

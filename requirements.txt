@@ -15,6 +15,12 @@ httpx>=0.26.0
 # LLM Integration (Google Gemini)
 google-genai>=1.0.0
 
+# LLM Integration (Groq — Llama 4 Scout vision, free tier)
+groq>=0.25.0
+
+# AWS Device Farm (cloud device provider)
+boto3>=1.34.0
+
 # Image Processing
 Pillow>=10.2.0
 

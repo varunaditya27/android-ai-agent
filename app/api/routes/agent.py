@@ -10,6 +10,7 @@ Provides:
 - Agent state and control
 """
 
+import asyncio
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,6 +20,8 @@ from app.agent import ReActAgent, AgentConfig, TaskResult
 from app.api.routes.sessions import get_session_device, get_sessions_store
 from app.config import get_settings, Settings
 from app.llm.client import LLMClient
+from app.llm.groq_client import GroqLLMClient
+from app.llm.key_rotator import ApiKeyRotator
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -122,23 +125,45 @@ async def execute_task(
         # Get device from session
         device = get_session_device(request.session_id)
 
-        # Create LLM client with Gemini configuration
+        # Create LLM client based on configured provider
         from app.llm.models import LLMConfig
-        
-        llm_config = LLMConfig(
-            api_key=settings.llm.gemini_api_key,
-            model=settings.llm.llm_model,
-            max_output_tokens=settings.llm.llm_max_output_tokens,
-            temperature=settings.llm.llm_temperature,
-            top_p=settings.llm.llm_top_p,
-            top_k=settings.llm.llm_top_k,
-        )
-        llm_client = LLMClient(llm_config)
+
+        provider = settings.llm.llm_provider
+
+        if provider == "groq":
+            # Groq: Llama 4 Scout vision (free, 1000 RPD)
+            llm_config = LLMConfig(
+                api_key=settings.llm.groq_api_key,
+                model=settings.llm.groq_model,
+                max_output_tokens=settings.llm.llm_max_output_tokens,
+                temperature=settings.llm.llm_temperature,
+                top_p=settings.llm.llm_top_p,
+                top_k=settings.llm.llm_top_k,
+            )
+            llm_client = GroqLLMClient(llm_config)
+        else:
+            # Gemini: Google AI (with key rotation)
+            all_api_keys = settings.llm.get_all_api_keys()
+            rotator = ApiKeyRotator(all_api_keys) if len(all_api_keys) > 1 else None
+
+            llm_config = LLMConfig(
+                api_key=all_api_keys[0],
+                model=settings.llm.llm_model,
+                max_output_tokens=settings.llm.llm_max_output_tokens,
+                temperature=settings.llm.llm_temperature,
+                top_p=settings.llm.llm_top_p,
+                top_k=settings.llm.llm_top_k,
+            )
+            llm_client = LLMClient(llm_config, key_rotator=rotator)
 
         # Create agent
         agent_config = AgentConfig(
             max_steps=request.max_steps,
             step_timeout=float(request.timeout_seconds) / request.max_steps,
+            min_step_interval=settings.agent.min_step_interval,
+            rate_limit_max_retries=settings.agent.rate_limit_max_retries,
+            enable_vision=settings.agent.enable_vision,
+            enable_accessibility_tree=settings.agent.enable_accessibility_tree,
         )
 
         agent = ReActAgent(
@@ -152,8 +177,6 @@ async def execute_task(
 
         try:
             # Run task
-            import asyncio
-
             result = await asyncio.wait_for(
                 agent.run(request.task),
                 timeout=float(request.timeout_seconds),
