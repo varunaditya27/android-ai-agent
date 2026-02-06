@@ -15,7 +15,7 @@ Transform natural language commands into Android device actions using advanced A
 
 ---
 
-## ðŸ“– Table of Contents
+## 📖 Table of Contents
 
 - [Overview](#overview)
 - [Features](#features)
@@ -41,19 +41,19 @@ The Android AI Agent is an intelligent automation system that enables users to c
 
 ```mermaid
 flowchart TD
-    A["ðŸ‘¤ User: Open YouTube and search for music"] --> B["ðŸ¤– AI Agent"]
+    A["👤 User: Open YouTube and search for music"] --> B["🤖 AI Agent"]
     B --> C{"ReAct Loop"}
-    C --> D["ðŸ‘ï¸ Observe<br/>Screenshot + UI Tree"]
-    D --> E["ðŸ§  Think<br/>LLM Vision Analysis"]
-    E --> F["âš¡ Act<br/>Tap/Swipe/Type"]
+    C --> D["👁️ Observe<br/>Screenshot + UI Tree"]
+    D --> E["🧠 Think<br/>LLM Vision Analysis"]
+    E --> F["⚡ Act<br/>Tap/Swipe/Type"]
     F --> G{"Task Complete?"}
     G -->|No| C
-    G -->|Yes| H["âœ… Task Completed!"]
+    G -->|Yes| H["✅ Task Completed!"]
 
-    E -.-> K["ðŸŸ¢ Groq Llama 4 Scout<br/>(FREE - 1000 RPD)"]
-    E -.-> L["ðŸ”µ Google Gemini<br/>(Fallback)"]
-    B -.-> I["ðŸ“± ADB Device<br/>(Local - FREE)"]
-    B -.-> J["â˜ï¸ AWS Device Farm<br/>(Cloud)"]
+    E -.-> K["🟢 Groq Llama 4 Scout<br/>(FREE - 1000 RPD)"]
+    E -.-> L["🔵 Google Gemini<br/>(Fallback)"]
+    B -.-> I["📱 ADB Device<br/>(Local - FREE)"]
+    B -.-> J["☁️ AWS Device Farm<br/>(Cloud)"]
 
     style A fill:#e1f5fe
     style H fill:#c8e6c9
@@ -73,7 +73,7 @@ The agent uses a **ReAct (Reasoning + Acting)** loop:
 
 ## Features
 
-### ðŸŽ¯ Core Capabilities
+### 🎯 Core Capabilities
 
 - **Natural Language Control** - Describe tasks in plain English
 - **Multi-Step Reasoning** - Complex tasks broken into logical steps
@@ -85,14 +85,14 @@ The agent uses a **ReAct (Reasoning + Acting)** loop:
 - **Error Recovery** - Automatic retry with alternative strategies
 - **FREE Local Device** - Use Android Emulator via ADB (zero cost!)
 
-### â™¿ Accessibility Features
+### ♿ Accessibility Features
 
 - **TalkBack Integration** - Works with Android screen reader
 - **Voice Announcements** - Audio feedback for actions
 - **Haptic Feedback** - Vibration patterns for events
 - **Blind-Friendly Design** - Clear, concise status updates
 
-### ðŸ”§ Technical Features
+### 🔧 Technical Features
 
 - **Local Device Control** - FREE ADB integration with emulator/USB devices
 - **Cloud Device Farms** - AWS Device Farm, Limrun, and BrowserStack support
@@ -166,65 +166,65 @@ flowchart TB
 ### Project Structure
 
 ```
-â”œâ”€â”€ app/
-â”‚   â”œâ”€â”€ __init__.py           # Package initialization
-â”‚   â”œâ”€â”€ main.py               # FastAPI application entry
-â”‚   â”œâ”€â”€ config.py             # Configuration management
-â”‚   â”‚
-â”‚   â”œâ”€â”€ agent/                # ReAct Agent Core
-â”‚   â”‚   â”œâ”€â”€ react_loop.py     # Main reasoning loop
-â”‚   â”‚   â”œâ”€â”€ state.py          # Agent state management
-â”‚   â”‚   â”œâ”€â”€ prompts.py        # System prompts
-â”‚   â”‚   â””â”€â”€ actions/          # Action handlers
-â”‚   â”‚       â”œâ”€â”€ handler.py    # Action dispatcher
-â”‚   â”‚       â”œâ”€â”€ tap.py        # Tap actions
-â”‚   â”‚       â”œâ”€â”€ swipe.py      # Swipe/scroll actions
-â”‚   â”‚       â”œâ”€â”€ type_text.py  # Text input
-â”‚   â”‚       â”œâ”€â”€ launch_app.py # App launcher
-â”‚   â”‚       â””â”€â”€ system.py     # System actions
-â”‚   â”‚
-â”‚   â”œâ”€â”€ device/               # Device Abstraction
-â”‚   â”‚   â”œâ”€â”€ cloud_provider.py # Cloud device ABC + factory
-â”‚   â”‚   â”œâ”€â”€ adb_device.py     # ADB device (FREE - local)
-â”‚   â”‚   â”œâ”€â”€ aws_device_farm.py # AWS Device Farm (cloud)
-â”‚   â”‚   â”œâ”€â”€ limrun_client.py  # Limrun integration
-â”‚   â”‚   â”œâ”€â”€ browserstack.py   # BrowserStack integration
-â”‚   â”‚   â””â”€â”€ screenshot.py     # Screenshot utilities
-â”‚   â”‚
-â”‚   â”œâ”€â”€ perception/           # UI Understanding
-â”‚   â”‚   â”œâ”€â”€ ui_parser.py      # Accessibility tree parser
-â”‚   â”‚   â”œâ”€â”€ element_detector.py # Element detection
-â”‚   â”‚   â”œâ”€â”€ auth_detector.py  # Login screen detection
-â”‚   â”‚   â””â”€â”€ ocr.py            # Text recognition
-â”‚   â”‚
-â”‚   â”œâ”€â”€ llm/                  # LLM Integration
-â”‚   â”‚   â”œâ”€â”€ client.py         # Gemini LLM client
-â”‚   â”‚   â”œâ”€â”€ groq_client.py    # Groq LLM client (Llama 4 Scout)
-â”‚   â”‚   â”œâ”€â”€ key_rotator.py    # API key rotation with cooldowns
-â”‚   â”‚   â”œâ”€â”€ models.py         # Model configurations
-â”‚   â”‚   â””â”€â”€ response_parser.py # Parse agent responses
-â”‚   â”‚
-â”‚   â”œâ”€â”€ accessibility/        # Accessibility Features
-â”‚   â”‚   â”œâ”€â”€ announcer.py      # Voice announcements
-â”‚   â”‚   â”œâ”€â”€ talkback.py       # TalkBack integration
-â”‚   â”‚   â””â”€â”€ haptics.py        # Haptic feedback
-â”‚   â”‚
-â”‚   â”œâ”€â”€ api/                  # REST & WebSocket API
-â”‚   â”‚   â”œâ”€â”€ routes/
-â”‚   â”‚   â”‚   â”œâ”€â”€ health.py     # Health checks
-â”‚   â”‚   â”‚   â”œâ”€â”€ sessions.py   # Device sessions
-â”‚   â”‚   â”‚   â””â”€â”€ agent.py      # Agent endpoints
-â”‚   â”‚   â””â”€â”€ websocket.py      # Real-time streaming
-â”‚   â”‚
-â”‚   â””â”€â”€ utils/                # Utilities
-â”‚       â”œâ”€â”€ logger.py         # Structured logging
-â”‚       â””â”€â”€ security.py       # Credential handling
-â”‚
-â”œâ”€â”€ tests/                    # Test suite
-â”œâ”€â”€ scripts/                  # Utility scripts
-â”œâ”€â”€ Dockerfile                # Container image
-â”œâ”€â”€ docker-compose.yml        # Service orchestration
-â””â”€â”€ requirements.txt          # Dependencies
+├── app/
+│   ├── __init__.py           # Package initialization
+│   ├── main.py               # FastAPI application entry
+│   ├── config.py             # Configuration management
+│   │
+│   ├── agent/                # ReAct Agent Core
+│   │   ├── react_loop.py     # Main reasoning loop
+│   │   ├── state.py          # Agent state management
+│   │   ├── prompts.py        # System prompts
+│   │   └── actions/          # Action handlers
+│   │       ├── handler.py    # Action dispatcher
+│   │       ├── tap.py        # Tap actions
+│   │       ├── swipe.py      # Swipe/scroll actions
+│   │       ├── type_text.py  # Text input
+│   │       ├── launch_app.py # App launcher
+│   │       └── system.py     # System actions
+│   │
+│   ├── device/               # Device Abstraction
+│   │   ├── cloud_provider.py # Cloud device ABC + factory
+│   │   ├── adb_device.py     # ADB device (FREE - local)
+│   │   ├── aws_device_farm.py # AWS Device Farm (cloud)
+│   │   ├── limrun_client.py  # Limrun integration
+│   │   ├── browserstack.py   # BrowserStack integration
+│   │   └── screenshot.py     # Screenshot utilities
+│   │
+│   ├── perception/           # UI Understanding
+│   │   ├── ui_parser.py      # Accessibility tree parser
+│   │   ├── element_detector.py # Element detection
+│   │   ├── auth_detector.py  # Login screen detection
+│   │   └── ocr.py            # Text recognition
+│   │
+│   ├── llm/                  # LLM Integration
+│   │   ├── client.py         # Gemini LLM client
+│   │   ├── groq_client.py    # Groq LLM client (Llama 4 Scout)
+│   │   ├── key_rotator.py    # API key rotation with cooldowns
+│   │   ├── models.py         # Model configurations
+│   │   └── response_parser.py # Parse agent responses
+│   │
+│   ├── accessibility/        # Accessibility Features
+│   │   ├── announcer.py      # Voice announcements
+│   │   ├── talkback.py       # TalkBack integration
+│   │   └── haptics.py        # Haptic feedback
+│   │
+│   ├── api/                  # REST & WebSocket API
+│   │   ├── routes/
+│   │   │   ├── health.py     # Health checks
+│   │   │   ├── sessions.py   # Device sessions
+│   │   │   └── agent.py      # Agent endpoints
+│   │   └── websocket.py      # Real-time streaming
+│   │
+│   └── utils/                # Utilities
+│       ├── logger.py         # Structured logging
+│       └── security.py       # Credential handling
+│
+├── tests/                    # Test suite
+├── scripts/                  # Utility scripts
+├── Dockerfile                # Container image
+├── docker-compose.yml        # Service orchestration
+└── requirements.txt          # Dependencies
 ```
 
 ---
@@ -425,19 +425,19 @@ MIN_STEP_INTERVAL=3.0                # 3s for Groq (30 RPM), 12s for Gemini
 
 | Provider | Model | Cost | Rate Limit | Vision | Best For |
 |----------|-------|------|------------|--------|----------|
-| **Groq** (default) | Llama 4 Scout | **FREE** | 1000 RPD / 30 RPM | âœ… | Development, Production |
-| **Gemini** (fallback) | Gemini 2.5 Flash | Free tier | ~20 RPD (vision) | âœ… | Higher quality fallback |
+| **Groq** (default) | Llama 4 Scout | **FREE** | 1000 RPD / 30 RPM | ✅ | Development, Production |
+| **Gemini** (fallback) | Gemini 2.5 Flash | Free tier | ~20 RPD (vision) | ✅ | Higher quality fallback |
 
 ### Device Provider Comparison
 
 ```mermaid
 flowchart LR
-    subgraph FREE["FREE Options ðŸ†“"]
+    subgraph FREE["FREE Options 🆓"]
         ADB["ADB + Emulator"]
         USB["ADB + USB Device"]
     end
 
-    subgraph CLOUD["Cloud Options â˜ï¸"]
+    subgraph CLOUD["Cloud Options ☁️"]
         AWS["AWS Device Farm"]
         Limrun["Limrun Cloud"]
         BS["BrowserStack"]
@@ -807,12 +807,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- ðŸ“§ Email: support@example.com
-- ðŸ’¬ Discord: [Join our community](https://discord.gg/example)
-- ðŸ› Issues: [GitHub Issues](https://github.com/yourusername/android-ai-agent/issues)
+- 📧 Email: support@example.com
+- 💬 Discord: [Join our community](https://discord.gg/example)
+- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/android-ai-agent/issues)
 
 ---
 
 <p align="center">
-  Made with â¤ï¸ for accessibility
+  Made with ❤️ for accessibility
 </p>
