@@ -1,5 +1,5 @@
 ﻿<div align="center">
-# Android AI Agent ðŸ¤–ðŸ“±
+# Android AI Agent 🤖📱
 </div>
 
 **AI-powered mobile automation agent designed for blind and visually impaired users.**
