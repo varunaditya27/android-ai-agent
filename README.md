@@ -1,4 +1,6 @@
-# Android AI Agent 🤖📱
+﻿<div align="center">
+# Android AI Agent ðŸ¤–ðŸ“±
+</div>
 
 **AI-powered mobile automation agent designed for blind and visually impaired users.**
 
@@ -6,12 +8,14 @@ Transform natural language commands into Android device actions using advanced A
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com/)
-[![Google Gemini](https://img.shields.io/badge/Gemini-2.0_Flash-4285F4.svg)](https://ai.google.dev/)
+[![Groq Llama 4](https://img.shields.io/badge/Groq-Llama_4_Scout-F55036.svg)](https://console.groq.com/)
+[![Google Gemini](https://img.shields.io/badge/Gemini-2.5_Flash-4285F4.svg)](https://ai.google.dev/)
+[![Tests](https://img.shields.io/badge/tests-314_passing-brightgreen.svg)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
-## 📖 Table of Contents
+## ðŸ“– Table of Contents
 
 - [Overview](#overview)
 - [Features](#features)
@@ -37,20 +41,24 @@ The Android AI Agent is an intelligent automation system that enables users to c
 
 ```mermaid
 flowchart TD
-    A["👤 User: Open YouTube and search for music"] --> B["🤖 AI Agent<br/>(Google Gemini 2.0 Flash)"]
+    A["ðŸ‘¤ User: Open YouTube and search for music"] --> B["ðŸ¤– AI Agent"]
     B --> C{"ReAct Loop"}
-    C --> D["👁️ Observe<br/>Screenshot + UI Tree"]
-    D --> E["🧠 Think<br/>LLM Analysis"]
-    E --> F["⚡ Act<br/>Tap/Swipe/Type"]
+    C --> D["ðŸ‘ï¸ Observe<br/>Screenshot + UI Tree"]
+    D --> E["ðŸ§  Think<br/>LLM Vision Analysis"]
+    E --> F["âš¡ Act<br/>Tap/Swipe/Type"]
     F --> G{"Task Complete?"}
     G -->|No| C
-    G -->|Yes| H["✅ Task Completed!"]
-    
-    B -.-> I["📱 Device<br/>(ADB Local - FREE)"]
-    B -.-> J["☁️ Cloud Device<br/>(Limrun/BrowserStack)"]
-    
+    G -->|Yes| H["âœ… Task Completed!"]
+
+    E -.-> K["ðŸŸ¢ Groq Llama 4 Scout<br/>(FREE - 1000 RPD)"]
+    E -.-> L["ðŸ”µ Google Gemini<br/>(Fallback)"]
+    B -.-> I["ðŸ“± ADB Device<br/>(Local - FREE)"]
+    B -.-> J["â˜ï¸ AWS Device Farm<br/>(Cloud)"]
+
     style A fill:#e1f5fe
     style H fill:#c8e6c9
+    style K fill:#c8e6c9
+    style L fill:#bbdefb
     style I fill:#fff9c4
     style J fill:#f3e5f5
 ```
@@ -65,32 +73,36 @@ The agent uses a **ReAct (Reasoning + Acting)** loop:
 
 ## Features
 
-### 🎯 Core Capabilities
+### ðŸŽ¯ Core Capabilities
 
 - **Natural Language Control** - Describe tasks in plain English
 - **Multi-Step Reasoning** - Complex tasks broken into logical steps
-- **Visual Understanding** - Gemini 2.0 Flash vision analyzes screenshots
+- **Visual Understanding** - Groq Llama 4 Scout or Gemini vision analyzes screenshots
+- **Dual LLM Provider** - Groq (free, 1000 req/day) as primary; Gemini as fallback
+- **API Key Rotation** - Automatic circular key rotation with per-key cooldowns
 - **Accessibility Tree Parsing** - Structured UI element detection
 - **Authentication Handling** - Secure credential input prompts
 - **Error Recovery** - Automatic retry with alternative strategies
 - **FREE Local Device** - Use Android Emulator via ADB (zero cost!)
 
-### ♿ Accessibility Features
+### â™¿ Accessibility Features
 
 - **TalkBack Integration** - Works with Android screen reader
 - **Voice Announcements** - Audio feedback for actions
 - **Haptic Feedback** - Vibration patterns for events
 - **Blind-Friendly Design** - Clear, concise status updates
 
-### 🔧 Technical Features
+### ðŸ”§ Technical Features
 
 - **Local Device Control** - FREE ADB integration with emulator/USB devices
-- **Cloud Device Farms** - Optional Limrun and BrowserStack support
-- **Google Gemini LLM** - Multimodal vision with free tier available
+- **Cloud Device Farms** - AWS Device Farm, Limrun, and BrowserStack support
+- **Groq LLM (Primary)** - Llama 4 Scout vision, 1000 req/day free tier
+- **Gemini LLM (Fallback)** - Multimodal vision with API key rotation across 5+ keys
+- **API Key Rotation** - Thread-safe circular rotation with per-key cooldowns
 - **WebSocket Streaming** - Real-time progress updates
 - **Async Architecture** - High-performance async/await
 - **Modular Design** - Easy to extend and customize
-- **Comprehensive Testing** - Unit and integration tests
+- **Comprehensive Testing** - 314 tests (unit + integration + API)
 - **Docker Support** - Easy deployment
 
 ---
@@ -104,107 +116,115 @@ flowchart TB
         REST["REST API Client"]
         WS["WebSocket Client"]
     end
-    
+
     subgraph API["API Layer (FastAPI)"]
         AgentRoutes["Agent Routes"]
         SessionRoutes["Session Routes"]
         HealthRoutes["Health Routes"]
         WSHandler["WebSocket Handler"]
     end
-    
+
     subgraph Agent["Agent Core"]
         ReAct["ReAct Loop"]
         State["State Manager"]
         Actions["Action Handler"]
         Prompts["Prompt Builder"]
     end
-    
+
     subgraph LLM["LLM Layer"]
-        Gemini["Gemini Client<br/>(google-genai)"]
+        GroqClient["Groq Client<br/>(Llama 4 Scout - FREE)"]
+        GeminiClient["Gemini Client<br/>(google-genai)"]
+        KeyRotator["API Key Rotator"]
         Parser["Response Parser"]
         Models["Model Config"]
     end
-    
+
     subgraph Device["Device Layer"]
         ADB["ADB Device<br/>(FREE - Local)"]
-        Cloud["Cloud Devices<br/>(Limrun/BrowserStack)"]
+        AWS["AWS Device Farm<br/>(Cloud)"]
+        Cloud["Limrun/BrowserStack<br/>(Cloud)"]
         Screenshot["Screenshot Processor"]
     end
-    
+
     subgraph Perception["Perception Layer"]
         UIParser["UI Parser"]
         ElementDetector["Element Detector"]
         AuthDetector["Auth Detector"]
     end
-    
+
     Client --> API
     API --> Agent
     Agent --> LLM
     Agent --> Device
     Device --> Perception
-    
+
     style ADB fill:#c8e6c9
-    style Gemini fill:#bbdefb
+    style GroqClient fill:#c8e6c9
+    style GeminiClient fill:#bbdefb
 ```
 
 ### Project Structure
 
 ```
-├── app/
-│   ├── __init__.py           # Package initialization
-│   ├── main.py               # FastAPI application entry
-│   ├── config.py             # Configuration management
-│   │
-│   ├── agent/                # ReAct Agent Core
-│   │   ├── react_loop.py     # Main reasoning loop
-│   │   ├── state.py          # Agent state management
-│   │   ├── prompts.py        # System prompts
-│   │   └── actions/          # Action handlers
-│   │       ├── handler.py    # Action dispatcher
-│   │       ├── tap.py        # Tap actions
-│   │       ├── swipe.py      # Swipe/scroll actions
-│   │       ├── type_text.py  # Text input
-│   │       ├── launch_app.py # App launcher
-│   │       └── system.py     # System actions
-│   │
-│   ├── device/               # Device Abstraction
-│   │   ├── cloud_provider.py # Cloud device interface
-│   │   ├── limrun_client.py  # Limrun integration
-│   │   ├── browserstack.py   # BrowserStack integration
-│   │   └── screenshot.py     # Screenshot utilities
-│   │
-│   ├── perception/           # UI Understanding
-│   │   ├── ui_parser.py      # Accessibility tree parser
-│   │   ├── element_detector.py # Element detection
-│   │   ├── auth_detector.py  # Login screen detection
-│   │   └── ocr.py            # Text recognition
-│   │
-│   ├── llm/                  # LLM Integration
-│   │   ├── client.py         # OpenAI-compatible client
-│   │   ├── models.py         # Model configurations
-│   │   └── response_parser.py # Parse agent responses
-│   │
-│   ├── accessibility/        # Accessibility Features
-│   │   ├── announcer.py      # Voice announcements
-│   │   ├── talkback.py       # TalkBack integration
-│   │   └── haptics.py        # Haptic feedback
-│   │
-│   ├── api/                  # REST & WebSocket API
-│   │   ├── routes/
-│   │   │   ├── health.py     # Health checks
-│   │   │   ├── sessions.py   # Device sessions
-│   │   │   └── agent.py      # Agent endpoints
-│   │   └── websocket.py      # Real-time streaming
-│   │
-│   └── utils/                # Utilities
-│       ├── logger.py         # Structured logging
-│       └── security.py       # Credential handling
-│
-├── tests/                    # Test suite
-├── scripts/                  # Utility scripts
-├── Dockerfile                # Container image
-├── docker-compose.yml        # Service orchestration
-└── requirements.txt          # Dependencies
+â”œâ”€â”€ app/
+â”‚   â”œâ”€â”€ __init__.py           # Package initialization
+â”‚   â”œâ”€â”€ main.py               # FastAPI application entry
+â”‚   â”œâ”€â”€ config.py             # Configuration management
+â”‚   â”‚
+â”‚   â”œâ”€â”€ agent/                # ReAct Agent Core
+â”‚   â”‚   â”œâ”€â”€ react_loop.py     # Main reasoning loop
+â”‚   â”‚   â”œâ”€â”€ state.py          # Agent state management
+â”‚   â”‚   â”œâ”€â”€ prompts.py        # System prompts
+â”‚   â”‚   â””â”€â”€ actions/          # Action handlers
+â”‚   â”‚       â”œâ”€â”€ handler.py    # Action dispatcher
+â”‚   â”‚       â”œâ”€â”€ tap.py        # Tap actions
+â”‚   â”‚       â”œâ”€â”€ swipe.py      # Swipe/scroll actions
+â”‚   â”‚       â”œâ”€â”€ type_text.py  # Text input
+â”‚   â”‚       â”œâ”€â”€ launch_app.py # App launcher
+â”‚   â”‚       â””â”€â”€ system.py     # System actions
+â”‚   â”‚
+â”‚   â”œâ”€â”€ device/               # Device Abstraction
+â”‚   â”‚   â”œâ”€â”€ cloud_provider.py # Cloud device ABC + factory
+â”‚   â”‚   â”œâ”€â”€ adb_device.py     # ADB device (FREE - local)
+â”‚   â”‚   â”œâ”€â”€ aws_device_farm.py # AWS Device Farm (cloud)
+â”‚   â”‚   â”œâ”€â”€ limrun_client.py  # Limrun integration
+â”‚   â”‚   â”œâ”€â”€ browserstack.py   # BrowserStack integration
+â”‚   â”‚   â””â”€â”€ screenshot.py     # Screenshot utilities
+â”‚   â”‚
+â”‚   â”œâ”€â”€ perception/           # UI Understanding
+â”‚   â”‚   â”œâ”€â”€ ui_parser.py      # Accessibility tree parser
+â”‚   â”‚   â”œâ”€â”€ element_detector.py # Element detection
+â”‚   â”‚   â”œâ”€â”€ auth_detector.py  # Login screen detection
+â”‚   â”‚   â””â”€â”€ ocr.py            # Text recognition
+â”‚   â”‚
+â”‚   â”œâ”€â”€ llm/                  # LLM Integration
+â”‚   â”‚   â”œâ”€â”€ client.py         # Gemini LLM client
+â”‚   â”‚   â”œâ”€â”€ groq_client.py    # Groq LLM client (Llama 4 Scout)
+â”‚   â”‚   â”œâ”€â”€ key_rotator.py    # API key rotation with cooldowns
+â”‚   â”‚   â”œâ”€â”€ models.py         # Model configurations
+â”‚   â”‚   â””â”€â”€ response_parser.py # Parse agent responses
+â”‚   â”‚
+â”‚   â”œâ”€â”€ accessibility/        # Accessibility Features
+â”‚   â”‚   â”œâ”€â”€ announcer.py      # Voice announcements
+â”‚   â”‚   â”œâ”€â”€ talkback.py       # TalkBack integration
+â”‚   â”‚   â””â”€â”€ haptics.py        # Haptic feedback
+â”‚   â”‚
+â”‚   â”œâ”€â”€ api/                  # REST & WebSocket API
+â”‚   â”‚   â”œâ”€â”€ routes/
+â”‚   â”‚   â”‚   â”œâ”€â”€ health.py     # Health checks
+â”‚   â”‚   â”‚   â”œâ”€â”€ sessions.py   # Device sessions
+â”‚   â”‚   â”‚   â””â”€â”€ agent.py      # Agent endpoints
+â”‚   â”‚   â””â”€â”€ websocket.py      # Real-time streaming
+â”‚   â”‚
+â”‚   â””â”€â”€ utils/                # Utilities
+â”‚       â”œâ”€â”€ logger.py         # Structured logging
+â”‚       â””â”€â”€ security.py       # Credential handling
+â”‚
+â”œâ”€â”€ tests/                    # Test suite
+â”œâ”€â”€ scripts/                  # Utility scripts
+â”œâ”€â”€ Dockerfile                # Container image
+â”œâ”€â”€ docker-compose.yml        # Service orchestration
+â””â”€â”€ requirements.txt          # Dependencies
 ```
 
 ---
@@ -214,9 +234,12 @@ flowchart TB
 ### Prerequisites
 
 - Python 3.11+
-- Google AI API key (Gemini) - [Get FREE key](https://aistudio.google.com/apikey)
-- **Option A (FREE)**: Android SDK with emulator OR Android device connected via USB
-- **Option B (Paid)**: Cloud device provider credentials (Limrun or BrowserStack)
+- **LLM API Key** (one of):
+  - Groq API key (FREE, recommended) - [Get FREE key](https://console.groq.com/keys)
+  - Google AI API key (Gemini) - [Get FREE key](https://aistudio.google.com/apikey)
+- **Device** (one of):
+  - **Option A (FREE)**: Android SDK with emulator OR Android device connected via USB
+  - **Option B (Cloud)**: AWS Device Farm, Limrun, or BrowserStack credentials
 
 ### 1. Clone and Install
 
@@ -245,12 +268,18 @@ nano .env
 
 Required settings:
 ```env
-# Required: Get free key at https://aistudio.google.com/apikey
-GEMINI_API_KEY=your-gemini-api-key
+# LLM Provider: "groq" (free, default) or "gemini"
+LLM_PROVIDER=groq
 
-# Optional: Only if using cloud devices (default is FREE local ADB)
-# DEVICE_PROVIDER=limrun
-# LIMRUN_API_KEY=your-device-provider-key
+# Groq (FREE - recommended): Get key at https://console.groq.com/keys
+GROQ_API_KEY=gsk_your-groq-api-key
+
+# OR Gemini (alternative): Get key at https://aistudio.google.com/apikey
+# LLM_PROVIDER=gemini
+# GEMINI_API_KEY=your-gemini-api-key
+
+# Device: default is FREE local ADB (no config needed)
+# For cloud: DEVICE_PROVIDER=aws_device_farm
 ```
 
 ### 3. Run the Server
@@ -301,8 +330,14 @@ pip install -e ".[dev]"
 # Build image
 docker build -t android-ai-agent .
 
-# Run container
+# Run container (Groq - free)
 docker run -p 8000:8000 \
+  -e GROQ_API_KEY=gsk_your-key \
+  android-ai-agent
+
+# Or with Gemini
+docker run -p 8000:8000 \
+  -e LLM_PROVIDER=gemini \
   -e GEMINI_API_KEY=your-key \
   android-ai-agent
 ```
@@ -330,15 +365,28 @@ Create a `.env` file with the following settings:
 
 ```env
 # ===========================================
-# LLM Configuration (Google Gemini)
+# LLM Provider Selection
+# ===========================================
+LLM_PROVIDER=groq                   # "groq" (free, default) or "gemini"
+
+# ===========================================
+# Groq Configuration (FREE - Recommended)
+# ===========================================
+# Get FREE API key at: https://console.groq.com/keys
+# Free tier: 1000 req/day, 30 req/min, 30K tokens/min
+GROQ_API_KEY=gsk_your-groq-api-key
+GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
+
+# ===========================================
+# Gemini Configuration (Alternative)
 # ===========================================
 # Get FREE API key at: https://aistudio.google.com/apikey
 GEMINI_API_KEY=your-gemini-api-key
-LLM_MODEL=gemini-2.0-flash          # or gemini-1.5-pro, gemini-1.5-flash
-LLM_MAX_OUTPUT_TOKENS=8192
+# Multiple keys for rotation (comma-separated, optional)
+GEMINI_API_KEYS=key1,key2,key3,key4,key5
+LLM_MODEL=gemini-2.5-flash           # or gemini-2.0-flash, gemini-1.5-pro
+LLM_MAX_OUTPUT_TOKENS=2048
 LLM_TEMPERATURE=0.1
-LLM_TOP_P=0.95
-LLM_TOP_K=40
 
 # ===========================================
 # Device Configuration
@@ -347,14 +395,15 @@ LLM_TOP_K=40
 DEVICE_PROVIDER=adb                  # FREE! Uses local emulator/USB device
 ADB_DEVICE_SERIAL=                   # Leave empty for auto-detect
 
-# Paid Option: Cloud providers (uncomment to use)
+# Cloud Option: AWS Device Farm (uncomment to use)
+# DEVICE_PROVIDER=aws_device_farm
+# AWS_DEVICE_FARM_PROJECT_ARN=arn:aws:devicefarm:us-west-2:...
+# AWS_ACCESS_KEY_ID=your-aws-key
+# AWS_SECRET_ACCESS_KEY=your-aws-secret
+
+# Cloud Option: Limrun / BrowserStack (uncomment to use)
 # DEVICE_PROVIDER=limrun
 # LIMRUN_API_KEY=your-limrun-key
-# LIMRUN_API_URL=https://api.limrun.com/v1
-
-# DEVICE_PROVIDER=browserstack
-# BROWSERSTACK_USERNAME=your-username
-# BROWSERSTACK_ACCESS_KEY=your-access-key
 
 # ===========================================
 # Server Configuration
@@ -368,36 +417,46 @@ CORS_ORIGINS=*
 # ===========================================
 # Agent Configuration
 # ===========================================
-AGENT_MAX_STEPS=50
-AGENT_STEP_TIMEOUT=30
+MAX_STEPS=30
+MIN_STEP_INTERVAL=3.0                # 3s for Groq (30 RPM), 12s for Gemini
 ```
+
+### LLM Provider Comparison
+
+| Provider | Model | Cost | Rate Limit | Vision | Best For |
+|----------|-------|------|------------|--------|----------|
+| **Groq** (default) | Llama 4 Scout | **FREE** | 1000 RPD / 30 RPM | âœ… | Development, Production |
+| **Gemini** (fallback) | Gemini 2.5 Flash | Free tier | ~20 RPD (vision) | âœ… | Higher quality fallback |
 
 ### Device Provider Comparison
 
 ```mermaid
 flowchart LR
-    subgraph FREE["FREE Options 🆓"]
+    subgraph FREE["FREE Options ðŸ†“"]
         ADB["ADB + Emulator"]
         USB["ADB + USB Device"]
     end
-    
-    subgraph PAID["Paid Options 💳"]
+
+    subgraph CLOUD["Cloud Options â˜ï¸"]
+        AWS["AWS Device Farm"]
         Limrun["Limrun Cloud"]
         BS["BrowserStack"]
     end
-    
+
     ADB --> |"$0/month"| Local["Local Development"]
     USB --> |"$0/month"| Local
-    Limrun --> |"Pay per minute"| Cloud["Production/Scale"]
+    AWS --> |"Pay per minute"| Cloud["Production/Scale"]
+    Limrun --> |"Pay per minute"| Cloud
     BS --> |"Pay per minute"| Cloud
-    
+
     style FREE fill:#c8e6c9
-    style PAID fill:#fff9c4
+    style CLOUD fill:#fff9c4
 ```
 
 | Provider | Cost | Latency | Setup | Best For |
 |----------|------|---------|-------|----------|
 | **ADB (Local)** | FREE | Very Low | Android SDK | Development, Testing |
+| **AWS Device Farm** | $$ | Medium | AWS credentials | CI/CD, Real devices |
 | **Limrun** | $$ | Medium | API Key | Production |
 | **BrowserStack** | $$$ | Medium | API Key | Enterprise |
 
@@ -460,13 +519,13 @@ ws.onopen = () => {
 
 ws.onmessage = (event) => {
   const message = JSON.parse(event.data);
-  
+
   switch (message.type) {
     case "step_update":
       console.log(`Step: ${message.data.action_type}`);
       console.log(`Thinking: ${message.data.thinking}`);
       break;
-      
+
     case "input_required":
       // Handle credential input
       const password = prompt(message.data.prompt);
@@ -475,7 +534,7 @@ ws.onmessage = (event) => {
         data: { value: password }
       }));
       break;
-      
+
     case "task_completed":
       console.log(`Done! ${message.data.result}`);
       break;
@@ -489,7 +548,7 @@ ws.onmessage = (event) => {
 import asyncio
 from app.agent import ReActAgent, AgentConfig
 from app.device.cloud_provider import create_cloud_device
-from app.llm.client import LLMClient
+from app.llm.groq_client import GroqLLMClient
 from app.llm.models import LLMConfig
 
 async def main():
@@ -499,27 +558,33 @@ async def main():
         device_id=None,  # Auto-detect device
     )
     await device.connect()
-    
-    # Setup LLM (Gemini - has free tier!)
+
+    # Setup LLM (Groq - FREE, 1000 req/day!)
     llm_config = LLMConfig(
-        api_key="your-gemini-key",
-        model="gemini-2.0-flash",
+        api_key="gsk_your-groq-key",
+        model="meta-llama/llama-4-scout-17b-16e-instruct",
     )
-    llm = LLMClient(llm_config)
-    
+    llm = GroqLLMClient(llm_config)
+
+    # Or use Gemini with API key rotation:
+    # from app.llm.client import LLMClient
+    # from app.llm.key_rotator import ApiKeyRotator
+    # rotator = ApiKeyRotator(["key1", "key2", "key3"])
+    # llm = LLMClient(LLMConfig(api_key=rotator.get_key(), model="gemini-2.5-flash"))
+
     # Create agent
     agent = ReActAgent(
         llm_client=llm,
         device=device,
         config=AgentConfig(max_steps=30),
     )
-    
+
     # Run task
     result = await agent.run("Open YouTube and play trending videos")
-    
+
     print(f"Success: {result.success}")
     print(f"Result: {result.result}")
-    
+
     # Cleanup
     await device.disconnect()
 
@@ -620,11 +685,13 @@ pytest tests/test_agent.py -v
 pytest tests/test_agent.py::TestAgentState::test_start_task -v
 ```
 
-### Test Categories
+### Test Categories (314 tests)
 
 - **Unit Tests**: Individual component testing
 - **Integration Tests**: Multi-component workflows
 - **API Tests**: FastAPI endpoint testing
+- **LLM Client Tests**: Groq client, Gemini client, key rotation
+- **Security Tests**: Credential handling, input validation
 
 ### Docker Test Runner
 
@@ -729,21 +796,23 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
+- Groq for free-tier Llama 4 Scout vision API
 - Google for Gemini multimodal AI capabilities
+- Meta for Llama 4 Scout open model
 - Android SDK team for ADB tooling
-- Limrun and BrowserStack for cloud device infrastructure
+- AWS Device Farm, Limrun, and BrowserStack for cloud device infrastructure
 - The accessibility community for invaluable feedback
 
 ---
 
 ## Support
 
-- 📧 Email: support@example.com
-- 💬 Discord: [Join our community](https://discord.gg/example)
-- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/android-ai-agent/issues)
+- ðŸ“§ Email: support@example.com
+- ðŸ’¬ Discord: [Join our community](https://discord.gg/example)
+- ðŸ› Issues: [GitHub Issues](https://github.com/yourusername/android-ai-agent/issues)
 
 ---
 
 <p align="center">
-  Made with ❤️ for accessibility
+  Made with â¤ï¸ for accessibility
 </p>
