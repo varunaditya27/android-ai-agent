@@ -13,6 +13,8 @@ Transform natural language commands into Android device actions using advanced A
 [![Tests](https://img.shields.io/badge/tests-314_passing-brightgreen.svg)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+> **Getting started?** See [SETUP.md](SETUP.md) for the complete step-by-step installation and setup guide.
+
 ---
 
 ## 📖 Table of Contents
@@ -20,9 +22,6 @@ Transform natural language commands into Android device actions using advanced A
 - [Overview](#overview)
 - [Features](#features)
 - [Architecture](#architecture)
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Configuration](#configuration)
 - [Usage](#usage)
 - [API Reference](#api-reference)
 - [Development](#development)
@@ -150,6 +149,7 @@ flowchart TB
         UIParser["UI Parser"]
         ElementDetector["Element Detector"]
         AuthDetector["Auth Detector"]
+        AppContext["App Context Detector"]
     end
 
     Client --> API
@@ -195,6 +195,7 @@ flowchart TB
 │   │   ├── ui_parser.py      # Accessibility tree parser
 │   │   ├── element_detector.py # Element detection
 │   │   ├── auth_detector.py  # Login screen detection
+│   │   ├── app_context.py    # App-specific context detection (YouTube ads, search fields)
 │   │   └── ocr.py            # Text recognition
 │   │
 │   ├── llm/                  # LLM Integration
@@ -229,236 +230,9 @@ flowchart TB
 
 ---
 
-## Quick Start
+## Getting Started
 
-### Prerequisites
-
-- Python 3.11+
-- **LLM API Key** (one of):
-  - Groq API key (FREE, recommended) - [Get FREE key](https://console.groq.com/keys)
-  - Google AI API key (Gemini) - [Get FREE key](https://aistudio.google.com/apikey)
-- **Device** (one of):
-  - **Option A (FREE)**: Android SDK with emulator OR Android device connected via USB
-  - **Option B (Cloud)**: AWS Device Farm, Limrun, or BrowserStack credentials
-
-### 1. Clone and Install
-
-```bash
-git clone https://github.com/varunaditya27/android-ai-agent.git
-cd android-ai-agent
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or: .\venv\Scripts\activate  # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Configure Environment
-
-```bash
-# Copy example config
-cp .env.example .env
-
-# Edit with your credentials
-nano .env
-```
-
-Required settings:
-```env
-# LLM Provider: "groq" (free, default) or "gemini"
-LLM_PROVIDER=groq
-
-# Groq (FREE - recommended): Get key at https://console.groq.com/keys
-GROQ_API_KEY=gsk_your-groq-api-key
-
-# OR Gemini (alternative): Get key at https://aistudio.google.com/apikey
-# LLM_PROVIDER=gemini
-# GEMINI_API_KEY=your-gemini-api-key
-
-# Device: default is FREE local ADB (no config needed)
-# For cloud: DEVICE_PROVIDER=aws_device_farm
-```
-
-### 3. Run the Server
-
-```bash
-# Development mode with hot reload
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# Or use the demo script
-python scripts/run_demo.py
-```
-
-### 4. Test It Out
-
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# Or open the interactive demo
-python scripts/run_demo.py --task "Open YouTube"
-```
-
----
-
-## Installation
-
-### From Source
-
-```bash
-# Clone repository
-git clone https://github.com/varunaditya27/android-ai-agent.git
-cd android-ai-agent
-
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate
-
-# Install production dependencies
-pip install -r requirements.txt
-
-# Install development dependencies (optional)
-pip install -e ".[dev]"
-```
-
-### Using Docker
-
-```bash
-# Build image
-docker build -t android-ai-agent .
-
-# Run container (Groq - free)
-docker run -p 8000:8000 \
-  -e GROQ_API_KEY=gsk_your-key \
-  android-ai-agent
-
-# Or with Gemini
-docker run -p 8000:8000 \
-  -e LLM_PROVIDER=gemini \
-  -e GEMINI_API_KEY=your-key \
-  android-ai-agent
-```
-
-### Using Docker Compose
-
-```bash
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f app
-
-# Stop services
-docker-compose down
-```
-
----
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file with the following settings:
-
-```env
-# ===========================================
-# LLM Provider Selection
-# ===========================================
-LLM_PROVIDER=groq                   # "groq" (free, default) or "gemini"
-
-# ===========================================
-# Groq Configuration (FREE - Recommended)
-# ===========================================
-# Get FREE API key at: https://console.groq.com/keys
-# Free tier: 1000 req/day, 30 req/min, 30K tokens/min
-GROQ_API_KEY=gsk_your-groq-api-key
-GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
-
-# ===========================================
-# Gemini Configuration (Alternative)
-# ===========================================
-# Get FREE API key at: https://aistudio.google.com/apikey
-GEMINI_API_KEY=your-gemini-api-key
-# Multiple keys for rotation (comma-separated, optional)
-GEMINI_API_KEYS=key1,key2,key3,key4,key5
-LLM_MODEL=gemini-2.5-flash           # or gemini-2.0-flash, gemini-1.5-pro
-LLM_MAX_OUTPUT_TOKENS=2048
-LLM_TEMPERATURE=0.1
-
-# ===========================================
-# Device Configuration
-# ===========================================
-# FREE Option (Recommended): Local ADB
-DEVICE_PROVIDER=adb                  # FREE! Uses local emulator/USB device
-ADB_DEVICE_SERIAL=                   # Leave empty for auto-detect
-
-# Cloud Option: AWS Device Farm (uncomment to use)
-# DEVICE_PROVIDER=aws_device_farm
-# AWS_DEVICE_FARM_PROJECT_ARN=arn:aws:devicefarm:us-west-2:...
-# AWS_ACCESS_KEY_ID=your-aws-key
-# AWS_SECRET_ACCESS_KEY=your-aws-secret
-
-# Cloud Option: Limrun / BrowserStack (uncomment to use)
-# DEVICE_PROVIDER=limrun
-# LIMRUN_API_KEY=your-limrun-key
-
-# ===========================================
-# Server Configuration
-# ===========================================
-SERVER_HOST=0.0.0.0
-SERVER_PORT=8000
-DEBUG=true
-LOG_LEVEL=INFO
-CORS_ORIGINS=*
-
-# ===========================================
-# Agent Configuration
-# ===========================================
-MAX_STEPS=30
-MIN_STEP_INTERVAL=3.0                # 3s for Groq (30 RPM), 12s for Gemini
-```
-
-### LLM Provider Comparison
-
-| Provider | Model | Cost | Rate Limit | Vision | Best For |
-|----------|-------|------|------------|--------|----------|
-| **Groq** (default) | Llama 4 Scout | **FREE** | 1000 RPD / 30 RPM | ✅ | Development, Production |
-| **Gemini** (fallback) | Gemini 2.5 Flash | Free tier | ~20 RPD (vision) | ✅ | Higher quality fallback |
-
-### Device Provider Comparison
-
-```mermaid
-flowchart LR
-    subgraph FREE["FREE Options 🆓"]
-        ADB["ADB + Emulator"]
-        USB["ADB + USB Device"]
-    end
-
-    subgraph CLOUD["Cloud Options ☁️"]
-        AWS["AWS Device Farm"]
-        Limrun["Limrun Cloud"]
-        BS["BrowserStack"]
-    end
-
-    ADB --> |"$0/month"| Local["Local Development"]
-    USB --> |"$0/month"| Local
-    AWS --> |"Pay per minute"| Cloud["Production/Scale"]
-    Limrun --> |"Pay per minute"| Cloud
-    BS --> |"Pay per minute"| Cloud
-
-    style FREE fill:#c8e6c9
-    style CLOUD fill:#fff9c4
-```
-
-| Provider | Cost | Latency | Setup | Best For |
-|----------|------|---------|-------|----------|
-| **ADB (Local)** | FREE | Very Low | Android SDK | Development, Testing |
-| **AWS Device Farm** | $$ | Medium | AWS credentials | CI/CD, Real devices |
-| **Limrun** | $$ | Medium | API Key | Production |
-| **BrowserStack** | $$$ | Medium | API Key | Enterprise |
+For complete setup instructions — including Android Studio installation, emulator creation, Groq API key setup, and running the agent — see **[SETUP.md](SETUP.md)**.
 
 ---
 

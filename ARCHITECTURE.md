@@ -105,6 +105,7 @@ flowchart TB
         UIParser["UI Parser<br/>(A11y Tree)"]
         ElementDetector["Element Detector"]
         AuthDetector["Auth Detector"]
+        AppContextDet["App Context Detector<br/>(YouTube/Search)"]
         OCR["OCR (Future)"]
     end
 
@@ -342,11 +343,12 @@ def parse_response(response: str) -> ParsedResponse:
 
 Processes UI information for the LLM:
 
-| Component         | Purpose                                                       |
-| ----------------- | ------------------------------------------------------------- |
-| `UIParser`        | Parses accessibility tree into structured `UIElement` objects |
-| `ElementDetector` | Hybrid detection combining tree + vision                      |
-| `AuthDetector`    | Identifies login/authentication screens                       |
+| Component            | Purpose                                                       |
+| -------------------- | ------------------------------------------------------------- |
+| `UIParser`           | Parses accessibility tree into structured `UIElement` objects |
+| `ElementDetector`    | Hybrid detection combining tree + vision                      |
+| `AuthDetector`       | Identifies login/authentication screens                       |
+| `AppContextDetector` | Detects app-specific states (YouTube ads/playback, search fields) |
 
 ```python
 @dataclass
@@ -376,6 +378,7 @@ flowchart LR
     Router -->|TAP| Tap["_handle_tap()"]
     Router -->|SWIPE| Swipe["_handle_swipe()"]
     Router -->|TYPE| Type["_handle_type()"]
+    Router -->|PRESS_KEY| PressKey["_handle_press_key()"]
     Router -->|LAUNCH| Launch["_handle_launch()"]
     Router -->|BACK| Back["_handle_back()"]
     Router -->|HOME| Home["_handle_home()"]
@@ -386,6 +389,7 @@ flowchart LR
     Tap --> Result["ActionExecutionResult"]
     Swipe --> Result
     Type --> Result
+    PressKey --> Result
     Launch --> Result
     Back --> Result
     Home --> Result
@@ -405,6 +409,7 @@ class ActionHandler:
             ActionType.TAP: self._handle_tap,
             ActionType.SWIPE: self._handle_swipe,
             ActionType.TYPE: self._handle_type,
+            ActionType.PRESS_KEY: self._handle_press_key,
             ActionType.LAUNCH: self._handle_launch,
             ActionType.BACK: self._handle_back,
             ActionType.HOME: self._handle_home,
@@ -1055,60 +1060,26 @@ if auth_detected:
 
 ## Quick Reference Card
 
-### Running the Project
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set up environment
-cp app/.env.example app/.env
-# Edit .env with your API keys (Groq recommended for free tier)
-# LLM_PROVIDER=groq
-# GROQ_API_KEY=gsk_your-groq-key
-
-# Start Android emulator
-emulator -avd Pixel_6_API_34
-
-# Run the server
-uvicorn app.main:app --reload
-
-# Test endpoint
-curl -X POST http://localhost:8000/agent/execute \
-  -H "Content-Type: application/json" \
-  -d '{"session_id": "test", "task": "Open YouTube"}'
-```
+> **Setup & Running**: See [SETUP.md](SETUP.md) for complete installation and running instructions.
 
 ### Key Files to Understand
 
-| File                           | Purpose                       |
-| ------------------------------ | ----------------------------- |
-| `app/agent/react_loop.py`      | Main agent logic              |
-| `app/llm/groq_client.py`       | Groq Llama 4 vision (primary) |
-| `app/llm/client.py`            | Gemini integration (fallback) |
-| `app/llm/key_rotator.py`       | API key rotation              |
-| `app/llm/response_parser.py`   | Action parsing                |
-| `app/device/adb_device.py`     | ADB implementation (FREE)     |
-| `app/device/aws_device_farm.py`| AWS Device Farm               |
-| `app/config.py`                | Configuration management      |
-| `app/api/routes/agent.py`      | API endpoints                 |
+| File                           | Purpose                         |
+| ------------------------------ | ------------------------------- |
+| `app/agent/react_loop.py`      | Main agent logic                |
+| `app/agent/prompts.py`         | System prompts (actions, rules) |
+| `app/llm/groq_client.py`       | Groq Llama 4 vision (primary)   |
+| `app/llm/client.py`            | Gemini integration (fallback)   |
+| `app/llm/key_rotator.py`       | API key rotation                |
+| `app/llm/response_parser.py`   | Action parsing                  |
+| `app/agent/actions/handler.py` | Action dispatch (incl. PressKey)|
+| `app/device/adb_device.py`     | ADB implementation (FREE)       |
+| `app/device/aws_device_farm.py`| AWS Device Farm                 |
+| `app/perception/app_context.py`| App-specific context detection  |
+| `app/config.py`                | Configuration management        |
+| `app/api/routes/agent.py`      | API endpoints                   |
 
-### Common Commands
 
-```bash
-# List connected devices
-adb devices
-
-# Take screenshot manually
-adb exec-out screencap -p > screen.png
-
-# Get UI hierarchy
-adb shell uiautomator dump /sdcard/ui.xml
-adb pull /sdcard/ui.xml
-
-# Launch app
-adb shell am start -n com.google.android.youtube/.HomeActivity
-```
 
 ---
 
