@@ -102,6 +102,7 @@ class ActionHandler:
             ActionType.SWIPE: self._handle_swipe,
             ActionType.SCROLL: self._handle_swipe,  # Scroll is a swipe
             ActionType.TYPE: self._handle_type,
+            ActionType.PRESS_KEY: self._handle_press_key,
             ActionType.LAUNCH: self._handle_launch,
             ActionType.BACK: self._handle_back,
             ActionType.HOME: self._handle_home,
@@ -170,7 +171,14 @@ class ActionHandler:
 
         # Tap by element index
         if "element_id" in params:
-            element_id = int(params["element_id"])
+            try:
+                element_id = int(params["element_id"])
+            except (ValueError, TypeError):
+                return ActionExecutionResult(
+                    success=False,
+                    error=f"Invalid element_id '{params['element_id']}' — must be an integer. "
+                          f"Use the [N] number from the screen elements list.",
+                )
             element = self._find_element(elements, element_id)
 
             if not element:
@@ -215,7 +223,13 @@ class ActionHandler:
         duration = int(params.get("duration_ms", 1000))
 
         if "element_id" in params:
-            element_id = int(params["element_id"])
+            try:
+                element_id = int(params["element_id"])
+            except (ValueError, TypeError):
+                return ActionExecutionResult(
+                    success=False,
+                    error=f"Invalid element_id '{params['element_id']}' — must be an integer.",
+                )
             element = self._find_element(elements, element_id)
 
             if not element:
@@ -309,6 +323,28 @@ class ActionHandler:
         return ActionExecutionResult(
             success=result.success,
             message=f"Typed '{display_text}'",
+            error=result.error,
+        )
+
+    async def _handle_press_key(
+        self,
+        action: ActionResult,
+        elements: list[UIElement],
+    ) -> ActionExecutionResult:
+        """Handle key press action."""
+        key = action.params.get("key", "enter")  # Default to Enter
+
+        if not key:
+            return ActionExecutionResult(
+                success=False,
+                error="PressKey action requires key parameter",
+            )
+
+        result = await self.device.press_key(key)
+
+        return ActionExecutionResult(
+            success=result.success,
+            message=f"Pressed {key} key",
             error=result.error,
         )
 

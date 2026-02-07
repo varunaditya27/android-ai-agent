@@ -110,6 +110,7 @@ class AgentState:
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    _screen_fingerprints: list[str] = field(default_factory=list)  # per-step screen hashes
 
     def start_task(self, task: str) -> None:
         """
@@ -129,6 +130,7 @@ class AgentState:
         self.result = None
         self.started_at = datetime.now()
         self.completed_at = None
+        self._screen_fingerprints = []
 
     def record_step(
         self,
@@ -292,8 +294,9 @@ class AgentState:
             return "No previous actions taken."
 
         lines = ["Recent action history:"]
-        # Show last 5 steps for better context
-        for step in self.get_recent_history(5):
+        # Show last 12 steps for better context — helps LLM understand
+        # how it got to the current screen and avoid repeating mistakes
+        for step in self.get_recent_history(12):
             status = "Successful" if step.success else "Failed"
             # Include action parameters for clarity
             action_desc = f"{step.action_type}"
@@ -313,13 +316,52 @@ class AgentState:
                 f"  Step {step.step_number}: Action: {action_desc} | Outcome: {status}"
             )
             if step.error:
-                lines.append(f"    Error: {step.error[:80]}...")
+                # Show enough of the error for the LLM to understand the problem
+                error_preview = step.error[:120]
+                if len(step.error) > 120:
+                    error_preview += "..."
+                lines.append(f"    Error: {error_preview}")
 
         return "\n".join(lines)
 
-    def detect_action_loop(self, lookback: int = 5) -> Optional[str]:
+    def record_screen_fingerprint(self, elements: list[Any]) -> None:
+        """Record a fingerprint of the current screen's element set.
+        
+        Call this each step with the detected UI elements so
+        detect_action_loop can check for repeated screens.
+        """
+        # Build a fingerprint from element texts and types (order-independent)
+        parts = []
+        for elem in elements:
+            text = getattr(elem, 'display_text', '') or ''
+            etype = getattr(elem, 'element_type', '') or ''
+            parts.append(f"{etype}:{text}")
+        parts.sort()
+        self._screen_fingerprints.append("|".join(parts))
+
+    def _action_signature(self, step: "StepRecord") -> str:
+        """Create a signature string from action type + key params for loop comparison."""
+        sig = step.action_type
+        if step.action_params:
+            # Normalize: treat both 'element' and 'element_id' as the same key
+            el_id = step.action_params.get("element_id") or step.action_params.get("element")
+            if el_id is not None:
+                sig += f":el={el_id}"
+            elif "x" in step.action_params and "y" in step.action_params:
+                sig += f":xy=({step.action_params['x']},{step.action_params['y']})"
+            if "app" in step.action_params:
+                sig += f":app={step.action_params['app']}"
+            if "direction" in step.action_params:
+                sig += f":dir={step.action_params['direction']}"
+        return sig
+
+    def detect_action_loop(self, lookback: int = 6) -> Optional[str]:
         """
         Detect if agent is repeating similar actions in a loop.
+
+        Uses action *signatures* (type + params like element_id) so that
+        tapping two different elements in alternation is caught even though
+        both are TAP actions.
 
         Args:
             lookback: Number of recent steps to check.
@@ -331,23 +373,70 @@ class AgentState:
             return None
 
         recent = self.get_recent_history(lookback)
-        action_types = [step.action_type for step in recent]
+        signatures = [self._action_signature(step) for step in recent]
 
-        # Check for repeated action types
-        if len(set(action_types)) == 1 and len(action_types) >= 3:
-            return f"WARNING: You have repeated the same action '{action_types[0]}' {len(action_types)} times. Try a different approach."
-
-        # Check for alternating patterns (e.g., Tap -> Back -> Tap -> Back)
-        if len(action_types) >= 4:
-            if action_types[-1] == action_types[-3] and action_types[-2] == action_types[-4]:
-                return f"WARNING: You are alternating between '{action_types[-1]}' and '{action_types[-2]}'. This pattern suggests you're stuck. Try a different approach."
-
-        # Check for repeated failures on same action type
+        # --- 1. Repeated failures on same action (most specific, check first) ---
         recent_failures = [s for s in recent if not s.success]
         if len(recent_failures) >= 3:
-            failure_types = [s.action_type for s in recent_failures]
-            if len(set(failure_types)) == 1:
-                return f"WARNING: Action '{failure_types[0]}' has failed {len(recent_failures)} times recently. Strongly consider a different action."
+            failure_sigs = [self._action_signature(s) for s in recent_failures]
+            if len(set(failure_sigs)) == 1:
+                return (
+                    f"LOOP DETECTED: Action '{failure_sigs[0]}' has failed "
+                    f"{len(recent_failures)} times. Strongly consider a "
+                    f"completely different action or navigation path."
+                )
+
+        # --- 2. Ping-pong: alternating between 2 specific actions (A-B-A-B) ---
+        if len(signatures) >= 4:
+            if (
+                signatures[-1] == signatures[-3]
+                and signatures[-2] == signatures[-4]
+                and signatures[-1] != signatures[-2]
+            ):
+                return (
+                    f"LOOP DETECTED: You are alternating between '{signatures[-1]}' "
+                    f"and '{signatures[-2]}' without making progress. "
+                    f"STOP repeating these two actions. Carefully re-read ALL the "
+                    f"elements on the current screen and pick a DIFFERENT element "
+                    f"or action that actually moves you toward the goal."
+                )
+
+        # --- 3. Exact same action (type+params) repeated 3+ times ---
+        if len(signatures) >= 3 and len(set(signatures[-3:])) == 1:
+            return (
+                f"LOOP DETECTED: You have performed the EXACT same action "
+                f"'{signatures[-1]}' {sum(1 for s in signatures if s == signatures[-1])} times. "
+                f"This action is NOT making progress. You MUST try a completely "
+                f"different element or approach. Look at ALL elements on the screen "
+                f"— especially ones you have NOT interacted with yet."
+            )
+
+        # --- 4. Small action vocabulary over many steps (stuck in a rut) ---
+        if len(signatures) >= 5:
+            unique_sigs = set(signatures)
+            if len(unique_sigs) <= 2:
+                return (
+                    f"LOOP DETECTED: Over the last {len(signatures)} steps you have only used "
+                    f"{len(unique_sigs)} distinct action(s): {', '.join(unique_sigs)}. "
+                    f"You are stuck. STOP and think about what OTHER elements or "
+                    f"approaches could achieve the goal. Read every element on screen carefully."
+                )
+
+        # --- 5. Same screen appearing repeatedly (screen fingerprint) ---
+        if len(self._screen_fingerprints) >= 4:
+            recent_fps = self._screen_fingerprints[-6:]  # last 6 screen fingerprints
+            # Count how many times the most recent screen appeared
+            current_fp = recent_fps[-1]
+            occurrences = sum(1 for fp in recent_fps if fp == current_fp)
+            if occurrences >= 3 and current_fp:  # same screen seen 3+ times in last 6 steps
+                return (
+                    f"LOOP DETECTED: You are seeing the SAME SCREEN for the {occurrences}th time. "
+                    f"Your actions keep bringing you back to this exact screen. "
+                    f"The approach you're using is fundamentally wrong. You MUST: \n"
+                    f"1. Identify what this screen is actually asking you to do\n"
+                    f"2. Fulfill that requirement (e.g., tap 'Add an email address' instead of dismissing the dialog)\n"
+                    f"3. If no element on this screen helps, try going Back or Home"
+                )
 
         return None
 

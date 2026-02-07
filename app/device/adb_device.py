@@ -156,6 +156,8 @@ class ADBDevice(CloudDevice):
                 capture_output=capture_output,
                 timeout=timeout,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             return result
         except subprocess.TimeoutExpired as e:
@@ -356,15 +358,18 @@ class ADBDevice(CloudDevice):
                 "shell", "uiautomator", "dump", "/sdcard/ui_dump.xml"
             )
 
-            # Pull the XML content
-            result = await self._run_adb(
+            # Pull the XML content as raw bytes to avoid encoding issues
+            # Gmail/YouTube/etc. may contain emoji and non-ASCII characters
+            # that crash cp1252 on Windows
+            raw_bytes = await self._run_adb_bytes(
                 "shell", "cat", "/sdcard/ui_dump.xml"
             )
 
-            if result.returncode != 0:
-                raise RuntimeError(f"Failed to read UI dump: {result.stderr}")
+            if not raw_bytes:
+                raise RuntimeError("Empty UI dump returned")
 
-            xml_content = result.stdout
+            # Decode with UTF-8 and replace any problematic bytes
+            xml_content = raw_bytes.decode("utf-8", errors="replace")
 
             # Clean up temp file on device
             await self._run_adb("shell", "rm", "/sdcard/ui_dump.xml")

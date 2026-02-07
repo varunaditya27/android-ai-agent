@@ -170,16 +170,37 @@ class AuthDetector:
 
     def _is_login_screen(self, text: str, elements: list[UIElement]) -> bool:
         """Check if this is a login screen."""
+        # Exclude browser/search screens — URL bars are editable but NOT login fields
+        browser_indicators = [
+            "search or type url", "search or type web",
+            "chrome", "new tab", "open the home page",
+            "search results", "google search",
+        ]
+        if any(bi in text for bi in browser_indicators):
+            return False
+
         # Must have login keywords
         has_login_keywords = any(kw in text for kw in self.LOGIN_KEYWORDS)
 
-        # Must have at least one editable field
-        has_input = any(elem.editable for elem in elements)
+        # Must have at least one editable field that looks like a credential field
+        # (not just any editable field like a search bar)
+        credential_fields = [
+            elem for elem in elements
+            if elem.editable and any(
+                kw in (elem.text + " " + elem.content_desc + " " + elem.resource_id).lower()
+                for kw in self.EMAIL_KEYWORDS + self.PASSWORD_KEYWORDS
+            )
+        ]
+        has_credential_input = len(credential_fields) > 0
+
+        # Fallback: if no credential-specific fields, require at least one editable + strong login signal
+        has_any_input = any(elem.editable for elem in elements)
+        strong_login_signal = any(kw in text for kw in ["sign in", "log in", "enter your password", "enter your email"])
 
         # Should not be registration
         is_register = any(kw in text for kw in self.REGISTER_KEYWORDS[:3])
 
-        return has_login_keywords and has_input and not is_register
+        return (has_credential_input or (has_any_input and strong_login_signal)) and has_login_keywords and not is_register
 
     def _is_register_screen(self, text: str, elements: list[UIElement]) -> bool:
         """Check if this is a registration screen."""
@@ -227,9 +248,24 @@ class AuthDetector:
 
     def _is_oauth_screen(self, text: str, elements: list[UIElement]) -> bool:
         """Check if this is an OAuth provider selection screen."""
+        # Exclude browser/search screens — Chrome URL bar, search results,
+        # and general web pages are NOT OAuth screens even if they mention
+        # Google, Facebook, etc.
+        browser_indicators = [
+            "search or type url", "search or type web",
+            "chrome", "new tab", "open the home page",
+            "search results", "google search",
+            "all images videos news",  # search result tabs
+        ]
+        if any(bi in text for bi in browser_indicators):
+            return False
+
         oauth_providers = [
-            "google", "facebook", "apple", "twitter", "github",
-            "microsoft", "sign in with", "continue with",
+            "sign in with google", "sign in with facebook",
+            "sign in with apple", "continue with google",
+            "continue with facebook", "continue with apple",
+            "sign in with twitter", "sign in with github",
+            "sign in with microsoft",
         ]
         oauth_count = sum(1 for provider in oauth_providers if provider in text)
         return oauth_count >= 2

@@ -28,12 +28,13 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from app.agent.actions.handler import ActionHandler, ActionExecutionResult
-from app.agent.prompts import SYSTEM_PROMPT, build_user_prompt
+from app.agent.prompts import SYSTEM_PROMPT, REFLECTION_PROMPT, build_user_prompt
 from app.agent.state import AgentState, TaskStatus
 from app.device.cloud_provider import CloudDevice
 from app.device.screenshot import resize_for_llm
 from app.llm.response_parser import ActionType, parse_response, format_action_for_log
 from app.perception.auth_detector import AuthDetector
+from app.perception.app_context import AppContextDetector
 from app.perception.element_detector import ElementDetector
 from app.perception.ui_parser import UIParser
 from app.utils.logger import get_logger
@@ -164,6 +165,7 @@ class ReActAgent:
         self.ui_parser = UIParser()
         self.element_detector = ElementDetector(llm_client, self.ui_parser)
         self.auth_detector = AuthDetector()
+        self.app_context_detector = AppContextDetector()
         self.action_handler = ActionHandler(
             device,
             action_delay=self.config.action_delay,
@@ -367,16 +369,29 @@ class ReActAgent:
             self.state.last_screenshot = screenshot_b64
             self.state.last_elements = elements
 
+            # Record screen fingerprint for loop detection
+            self.state.record_screen_fingerprint(elements)
+
             # Get current app
             self.state.current_app = await self.device.get_current_app()
 
             # Check for auth screens
             auth_screen = self.auth_detector.detect_auth(elements)
 
+            # Check for app-specific context (YouTube ads, video playing, etc.)
+            app_context = self.app_context_detector.detect(
+                self.state.current_app, elements, self.state.task
+            )
+
             # 2. THINK: Ask LLM for next action
             # Detect loops before building prompt
-            loop_warning = self.state.detect_action_loop(lookback=5)
-            additional_context = self._build_additional_context(auth_screen, loop_warning)
+            loop_warning = self.state.detect_action_loop(lookback=6)
+            additional_context = self._build_additional_context(
+                auth_screen, loop_warning, app_context
+            )
+
+            # If in a loop, switch to reflection prompt to force re-thinking
+            active_system_prompt = REFLECTION_PROMPT if loop_warning else SYSTEM_PROMPT
             
             user_prompt = build_user_prompt(
                 task=self.state.task,
@@ -392,7 +407,7 @@ class ReActAgent:
             llm_response = await self.llm.complete_with_vision(
                 prompt=user_prompt,
                 image_data=screenshot_for_llm,
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=active_system_prompt,
             )
 
             # Parse response
@@ -403,6 +418,33 @@ class ReActAgent:
                     "LLM response",
                     thinking=parsed.thinking[:100] + "..." if len(parsed.thinking) > 100 else parsed.thinking,
                     action=format_action_for_log(parsed.action),
+                )
+
+            # VALIDATE: Reject actions that can't possibly succeed
+            # (Inspired by DroidRun's validate-and-retry pattern)
+            validation_error = self._validate_action(parsed.action, elements)
+            if validation_error:
+                logger.warning(
+                    "Action failed validation, recording as failed step",
+                    action=format_action_for_log(parsed.action),
+                    validation_error=validation_error,
+                )
+                duration_ms = int((time.time() - step_start) * 1000)
+                self.state.record_step(
+                    thinking=parsed.thinking,
+                    action_type=parsed.action.action_type.name,
+                    action_params=parsed.action.params,
+                    success=False,
+                    error=validation_error,
+                    screenshot_b64=screenshot_b64,
+                    duration_ms=duration_ms,
+                )
+                return StepResult(
+                    success=False,
+                    finished=False,
+                    thinking=parsed.thinking,
+                    action_type=parsed.action.action_type.name,
+                    error=validation_error,
                 )
 
             # 3. ACT: Execute the action
@@ -487,21 +529,116 @@ class ReActAgent:
                 error=str(e),
             )
 
-    def _build_additional_context(self, auth_screen: Any, loop_warning: Optional[str] = None) -> str:
+    def _validate_action(self, action, elements: list) -> Optional[str]:
+        """Validate a parsed action before execution.
+
+        Returns None if valid, or an error string if the action is invalid.
+        This prevents crashes in the handler and provides clear feedback
+        to the LLM about what went wrong.
+        """
+        # UNKNOWN actions are never valid
+        if action.action_type == ActionType.UNKNOWN:
+            return (
+                f"Could not parse action from LLM output: '{action.raw[:80]}'. "
+                f"Use the exact format: do(action=\"Tap\", element_id=N)"
+            )
+
+        # TAP / LONG_PRESS require element_id (int) or x,y coordinates
+        if action.action_type in (ActionType.TAP, ActionType.LONG_PRESS):
+            has_element = "element_id" in action.params
+            has_coords = "x" in action.params and "y" in action.params
+            if not has_element and not has_coords:
+                return (
+                    f"{action.action_type.name} requires element_id=N or x,y coordinates. "
+                    f"Got params: {action.params}. Use: do(action=\"Tap\", element_id=N)"
+                )
+            if has_element:
+                eid = action.params["element_id"]
+                if not isinstance(eid, int):
+                    return (
+                        f"element_id must be an integer, got '{eid}' ({type(eid).__name__}). "
+                        f"Use the element number from the screen elements list."
+                    )
+                # Check element exists in current UI
+                if elements:
+                    valid_indices = {
+                        elem.index for elem in elements
+                        if hasattr(elem, 'index')
+                    }
+                    if eid not in valid_indices:
+                        available = sorted(list(valid_indices))[:20]
+                        return (
+                            f"Element {eid} does not exist on the current screen. "
+                            f"Available element IDs: {available}"
+                        )
+
+        # SWIPE requires direction
+        if action.action_type in (ActionType.SWIPE, ActionType.SCROLL):
+            if not action.params.get("direction") and not all(
+                k in action.params for k in ["start_x", "start_y", "end_x", "end_y"]
+            ):
+                return "Swipe requires direction='up/down/left/right' or start/end coordinates."
+
+        # TYPE requires text
+        if action.action_type == ActionType.TYPE:
+            if not action.params.get("text"):
+                return "Type requires text parameter: do(action=\"Type\", text=\"...\")"
+
+        # LAUNCH requires app
+        if action.action_type == ActionType.LAUNCH:
+            if not action.params.get("app"):
+                return "Launch requires app parameter: do(action=\"Launch\", app=\"name\")"
+
+        return None
+
+    def _build_additional_context(self, auth_screen: Any, loop_warning: Optional[str] = None, app_context: Any = None) -> str:
         """Build additional context for the prompt.
         
         Args:
             auth_screen: Detected authentication screen info.
             loop_warning: Warning message if agent is in a loop.
+            app_context: App-specific context (YouTube, media, etc.).
             
         Returns:
             Formatted context string with warnings and hints.
         """
         context_parts = []
 
-        # HIGHEST PRIORITY: Loop detection
+        # HIGHEST PRIORITY: App-specific context (ads, video playing, etc.)
+        if app_context and app_context.context_hint:
+            context_parts.append(app_context.context_hint)
+
+        # HIGH PRIORITY: Loop detection — include untried elements hint
         if loop_warning:
             context_parts.append(f"🚨 {loop_warning}")
+            # Build list of recently-tried element IDs so the agent knows what to avoid
+            tried_ids: set[int] = set()
+            for step in self.state.get_recent_history(8):
+                eid = step.action_params.get("element_id")
+                if isinstance(eid, int):
+                    tried_ids.add(eid)
+                elif isinstance(eid, str) and eid.isdigit():
+                    tried_ids.add(int(eid))
+            if tried_ids:
+                context_parts.append(
+                    f"Elements you have already tried (AVOID these): {sorted(tried_ids)}\n"
+                    f"Look for elements you have NOT tapped yet."
+                )
+            # Provide concrete suggestion: list clickable elements NOT in tried_ids
+            if self.state.last_elements:
+                untried = []
+                for elem in self.state.last_elements:
+                    if hasattr(elem, 'index') and hasattr(elem, 'clickable') and elem.clickable:
+                        idx = elem.index if isinstance(elem.index, int) else None
+                        if idx is not None and idx not in tried_ids:
+                            text = getattr(elem, 'display_text', '') or ''
+                            untried.append(f"[{idx}] {text}")
+                if untried:
+                    context_parts.append(
+                        f"Untried clickable elements on this screen:\n"
+                        + "\n".join(untried[:10])
+                        + "\nConsider tapping one of these instead."
+                    )
 
         # HIGH PRIORITY: Submit button after credentials
         if self.state.input_needs_submit:
