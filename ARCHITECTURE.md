@@ -17,10 +17,11 @@
 7. [API Design](#api-design)
 8. [Configuration Management](#configuration-management)
 9. [Error Handling Strategy](#error-handling-strategy)
-10. [Testing Architecture](#testing-architecture)
-11. [Security Considerations](#security-considerations)
-12. [Scalability & Performance](#scalability--performance)
-13. [Interview Discussion Points](#interview-discussion-points)
+10. [Accessibility Architecture](#accessibility-architecture)
+11. [Testing Architecture](#testing-architecture)
+12. [Security Considerations](#security-considerations)
+13. [Scalability & Performance](#scalability--performance)
+14. [Interview Discussion Points](#interview-discussion-points)
 
 ---
 
@@ -42,7 +43,7 @@ An AI-powered Android automation agent designed to help **visually impaired user
 | **Cloud Devices**      | AWS Device Farm, Limrun, BrowserStack                        |
 | **API Framework**      | FastAPI with async/await                                     |
 | **Configuration**      | Pydantic Settings with .env support                          |
-| **Testing**            | 314 tests (pytest), 100% pass rate                           |
+| **Testing**            | 369 tests (pytest), 100% pass rate                           |
 | **Architecture Style** | Clean Architecture / Layered Design                          |
 
 ### Why These Choices?
@@ -109,18 +110,22 @@ flowchart TB
         OCR["OCR (Future)"]
     end
 
-    subgraph A11yLayer["â™¿ Accessibility Layer"]
-        Announcer["Announcer (Speech)"]
-        TalkBack["TalkBack Controller"]
-        Haptics["Haptics Feedback"]
+    subgraph A11yLayer["♿ Accessibility Layer"]
+        A11yMgr["AccessibilityManager<br/>(Facade)"]
+        Announcer["Announcer<br/>(Host TTS - pyttsx3)"]
+        TalkBack["TalkBack Controller<br/>(Device ADB)"]
+        Haptics["Haptics Controller<br/>(Device Vibration)"]
+        A11yMgr --> Announcer
+        A11yMgr --> TalkBack
+        A11yMgr --> Haptics
     end
 
     ClientLayer --> APILayer
     APILayer --> AgentCore
     AgentCore --> LLMLayer
     AgentCore --> DeviceLayer
+    AgentCore --> A11yLayer
     DeviceLayer --> PerceptionLayer
-    PerceptionLayer --> A11yLayer
 
     Observe --> Think --> Act --> Observe
 
@@ -960,12 +965,51 @@ raise HTTPException(
 
 ---
 
+## Accessibility Architecture
+
+The agent is designed ground-up for blind users. Accessibility is **not** an afterthought — it is a separate architectural layer coordinated by `AccessibilityManager`.
+
+### Component Overview
+
+| Component | Location | Runs on | Purpose |
+|---|---|---|---|
+| **AccessibilityManager** | `app/accessibility/manager.py` | Host | Facade coordinating the three controllers below |
+| **Announcer** | `app/accessibility/announcer.py` | Host | Text-to-speech via **pyttsx3** + screen-reader stdout |
+| **TalkBackController** | `app/accessibility/talkback.py` | Device (ADB) | Enable/disable TalkBack, set high contrast, font scale, speech rate |
+| **HapticsController** | `app/accessibility/haptics.py` | Device (ADB) | Vibration patterns for action feedback, errors, task completion |
+
+### Design Decisions
+
+- **Host-side TTS (pyttsx3)** over device-side TTS: The agent user sits at the computer, so audio must come from the host. pyttsx3 calls are wrapped with `asyncio.to_thread()` to avoid blocking the event loop.
+- **Screen-reader mode**: When `SCREEN_READER_MODE=true`, all console output is stripped of emojis (via regex) and prefixed with `[Agent]` so NVDA / JAWS / VoiceOver pick it up cleanly.
+- **Deduplication**: The Announcer tracks recent messages and suppresses duplicates within a configurable timeout (default 3 s).
+- **Zero-crash guarantee**: Every accessibility callback in `react_loop.py` is wrapped in `try/except` — a TTS or vibration failure never aborts the task.
+- **Haptic auto-detection**: `HapticsController._detect_vibrator()` probes three ADB vibrator paths to work across different Android versions.
+- **Independent toggles**: TTS, TalkBack, haptics, high-contrast, and large-text are each toggled independently via env vars.
+
+### Configuration
+
+All settings are in `AccessibilitySettings` (in `app/config.py`) and loaded from `.env`:
+
+| Env Var | Default | Description |
+|---|---|---|
+| `ENABLE_ACCESSIBILITY` | `true` | Master toggle |
+| `ENABLE_TTS` | `true` | Host-side text-to-speech |
+| `TTS_RATE` | `200` | Words per minute |
+| `SCREEN_READER_MODE` | `true` | Strip emojis, prefix output for NVDA/JAWS |
+| `ENABLE_TALKBACK` | `false` | Device-side screen reader |
+| `ENABLE_HAPTICS` | `true` | Device vibration feedback |
+| `ENABLE_HIGH_CONTRAST` | `false` | High-contrast text on device |
+| `ENABLE_LARGE_TEXT` | `false` | 1.3x font scale on device |
+
+---
+
 ## Testing Architecture
 
 ### Test Structure
 
 ```
-tests/                       # 314 tests total
+tests/                       # 369 tests total
 â”œâ”€â”€ conftest.py              # Shared fixtures
 â”œâ”€â”€ test_actions.py          # Action handler tests
 â”œâ”€â”€ test_agent.py            # ReAct agent loop tests

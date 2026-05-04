@@ -14,8 +14,9 @@ Complete end-to-end guide to get the Android AI Agent running on your machine. F
 6. [Create a Virtual Environment & Install Dependencies](#6-create-a-virtual-environment--install-dependencies)
 7. [Get a Groq API Key (FREE)](#7-get-a-groq-api-key-free)
 8. [Configure the Environment](#8-configure-the-environment)
-9. [Run the Agent](#9-run-the-agent)
-10. [Troubleshooting](#10-troubleshooting)
+9. [Accessibility Configuration (for blind users)](#9-accessibility-configuration-for-blind-users)
+10. [Run the Agent](#10-run-the-agent)
+11. [Troubleshooting](#11-troubleshooting)
 
 ---
 
@@ -203,7 +204,41 @@ That's the only required change. All other defaults work out of the box with a l
 
 ---
 
-## 9. Run the Agent
+## 9. Accessibility Configuration (for blind users)
+
+The agent includes built-in accessibility features. These are **enabled by default** — no extra setup needed. To customise, add these to your `.env`:
+
+```bash
+# ── Accessibility ──────────────────────────────────
+# Master switch (default: true)
+ENABLE_ACCESSIBILITY=true
+
+# Host-side text-to-speech — reads actions aloud through speakers
+ENABLE_TTS=true
+TTS_RATE=200        # words per minute (increase to speed up)
+TTS_VOLUME=1.0      # 0.0 – 1.0
+
+# Screen-reader-friendly console output
+# Strips emojis and prefixes lines with [Agent] for NVDA / JAWS / VoiceOver
+SCREEN_READER_MODE=true
+
+# Device-side TalkBack (Android's built-in screen reader)
+# WARNING: this changes the device's accessibility services
+ENABLE_TALKBACK=false
+
+# Device vibration feedback
+ENABLE_HAPTICS=true
+
+# Visual accessibility on the device (for low-vision users)
+ENABLE_HIGH_CONTRAST=false
+ENABLE_LARGE_TEXT=false
+```
+
+> **Note**: pyttsx3 (the TTS library) is installed automatically with `pip install -r requirements.txt`. On Windows it uses SAPI5; on macOS it uses NSSpeechSynthesizer; on Linux it uses espeak.
+
+---
+
+## 10. Run the Agent
 
 Make sure:
 - Your virtual environment is active (you see `(venv)` in the prompt).
@@ -223,21 +258,22 @@ You should see:
 ║      Groq / Gemini  •  ADB / AWS Device Farm           ║
 ╚════════════════════════════════════════════════════════╝
 
-📱 Device provider: adb
+Device provider: adb
    ✓ Connected to sdk_gphone64_x86_64
    ✓ Android 16
    ✓ Screen: 1080x2400
-🤖 Using Groq model: meta-llama/llama-4-scout-17b-16e-instruct
+LLM: Groq model: meta-llama/llama-4-scout-17b-16e-instruct
    Free tier: 1,000 requests/day, 30 req/min
-✓ Agent ready!
+Accessibility enabled: TTS, Haptics, Screen-reader output
+Agent ready.
 
 Interactive Mode
 Type your tasks or commands:
-  • Type a task description to execute it
-  • Type 'exit' or 'quit' to stop
-  • Type 'help' for example tasks
+  - Type a task description to execute it
+  - Type 'exit' or 'quit' to stop
+  - Type 'help' for example tasks
 
-🎯 Enter task:
+Enter task:
 ```
 
 
@@ -257,7 +293,7 @@ Then open http://localhost:8000/docs for the interactive Swagger UI.
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### `adb: command not found`
 
@@ -309,7 +345,7 @@ Run the full test suite to verify your setup:
 pytest tests/ -v
 ```
 
-All 314 tests should pass.
+All 369 tests should pass.
 
 ---
 

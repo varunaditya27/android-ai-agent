@@ -10,7 +10,7 @@ Transform natural language commands into Android device actions using advanced A
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com/)
 [![Groq Llama 4](https://img.shields.io/badge/Groq-Llama_4_Scout-F55036.svg)](https://console.groq.com/)
 [![Google Gemini](https://img.shields.io/badge/Gemini-2.5_Flash-4285F4.svg)](https://ai.google.dev/)
-[![Tests](https://img.shields.io/badge/tests-314_passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-369_passing-brightgreen.svg)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > **Getting started?** See [SETUP.md](SETUP.md) for the complete step-by-step installation and setup guide.
@@ -86,10 +86,12 @@ The agent uses a **ReAct (Reasoning + Acting)** loop:
 
 ### ♿ Accessibility Features
 
-- **TalkBack Integration** - Works with Android screen reader
-- **Voice Announcements** - Audio feedback for actions
-- **Haptic Feedback** - Vibration patterns for events
-- **Blind-Friendly Design** - Clear, concise status updates
+- **Host-Side TTS** - Real text-to-speech via pyttsx3 reads every agent action aloud through the host computer speakers
+- **Screen-Reader Mode** - Strips emojis, formats all console output for NVDA / JAWS / VoiceOver compatibility
+- **TalkBack Integration** - Enable/disable Android's built-in screen reader, set speech rate, high-contrast text, and large-text via ADB
+- **Haptic Feedback** - Device-side vibration patterns for taps, errors, task completion, input requests, and more (12 distinct patterns)
+- **AccessibilityManager** - Single facade coordinating TTS + TalkBack + Haptics, wired into the agent loop with zero-crash guarantees
+- **Configurable** - All features toggle independently via `.env` settings (`ENABLE_TTS`, `SCREEN_READER_MODE`, `ENABLE_TALKBACK`, `ENABLE_HAPTICS`, etc.)
 
 ### 🔧 Technical Features
 
@@ -101,7 +103,7 @@ The agent uses a **ReAct (Reasoning + Acting)** loop:
 - **WebSocket Streaming** - Real-time progress updates
 - **Async Architecture** - High-performance async/await
 - **Modular Design** - Easy to extend and customize
-- **Comprehensive Testing** - 314 tests (unit + integration + API)
+- **Comprehensive Testing** - 369 tests (unit + integration + API + accessibility)
 - **Docker Support** - Easy deployment
 
 ---
@@ -206,9 +208,10 @@ flowchart TB
 │   │   └── response_parser.py # Parse agent responses
 │   │
 │   ├── accessibility/        # Accessibility Features
-│   │   ├── announcer.py      # Voice announcements
-│   │   ├── talkback.py       # TalkBack integration
-│   │   └── haptics.py        # Haptic feedback
+│   │   ├── announcer.py      # Host-side TTS via pyttsx3
+│   │   ├── talkback.py       # Device-side TalkBack control via ADB
+│   │   ├── haptics.py        # Device-side vibration feedback
+│   │   └── manager.py        # Unified AccessibilityManager facade
 │   │
 │   ├── api/                  # REST & WebSocket API
 │   │   ├── routes/
@@ -459,12 +462,13 @@ pytest tests/test_agent.py -v
 pytest tests/test_agent.py::TestAgentState::test_start_task -v
 ```
 
-### Test Categories (314 tests)
+### Test Categories (369 tests)
 
 - **Unit Tests**: Individual component testing
 - **Integration Tests**: Multi-component workflows
 - **API Tests**: FastAPI endpoint testing
 - **LLM Client Tests**: Groq client, Gemini client, key rotation
+- **Accessibility Tests**: Announcer, TalkBack, Haptics, AccessibilityManager
 - **Security Tests**: Credential handling, input validation
 
 ### Docker Test Runner

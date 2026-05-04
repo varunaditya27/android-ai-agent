@@ -24,6 +24,9 @@ boto3>=1.34.0
 # Image Processing
 Pillow>=10.2.0
 
+# Accessibility (host-side TTS for blind users)
+pyttsx3>=2.99
+
 # XML Parsing (for accessibility tree)
 lxml>=5.0.0
 
