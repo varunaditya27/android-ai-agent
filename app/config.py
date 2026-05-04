@@ -189,6 +189,65 @@ class AgentSettings(BaseSettings):
     default_language: str = Field(default="en", description="Default language")
 
 
+class AccessibilitySettings(BaseSettings):
+    """
+    Accessibility settings for blind / low-vision users.
+
+    Controls host-side TTS, device-side TalkBack, haptic feedback,
+    and screen-reader-friendly output formatting.
+    """
+
+    model_config = _shared_config
+
+    # Master toggle — when False, no accessibility features run
+    enable_accessibility: bool = Field(
+        default=True,
+        description="Master toggle for all accessibility features",
+    )
+
+    # Host-side TTS (pyttsx3)
+    enable_tts: bool = Field(
+        default=True,
+        description="Speak step results and task progress via the host speakers (pyttsx3)",
+    )
+    tts_rate: int = Field(
+        default=200,
+        description="TTS speech rate in words-per-minute (100–400)",
+    )
+    tts_volume: float = Field(
+        default=1.0,
+        description="TTS volume (0.0–1.0)",
+    )
+
+    # Device-side TalkBack
+    enable_talkback: bool = Field(
+        default=False,
+        description="Enable TalkBack on the Android device at session start",
+    )
+
+    # Device-side haptic / vibration feedback
+    enable_haptics: bool = Field(
+        default=True,
+        description="Vibrate the device on action success/failure",
+    )
+
+    # Screen-reader-friendly CLI output
+    screen_reader_mode: bool = Field(
+        default=True,
+        description="Format CLI output for screen readers (no emojis, clean text)",
+    )
+
+    # High-contrast / large text on device
+    enable_high_contrast: bool = Field(
+        default=False,
+        description="Enable high-contrast text on the Android device",
+    )
+    enable_large_text: bool = Field(
+        default=False,
+        description="Increase font scale on the Android device (1.3×)",
+    )
+
+
 class Settings(BaseSettings):
     """
     Main settings class combining all configuration sections.
@@ -210,6 +269,7 @@ class Settings(BaseSettings):
     device: DeviceSettings = Field(default_factory=DeviceSettings)
     server: ServerSettings = Field(default_factory=ServerSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    accessibility: AccessibilitySettings = Field(default_factory=AccessibilitySettings)
 
     def __init__(self, **kwargs):
         """Initialize settings with nested configuration."""
@@ -219,6 +279,7 @@ class Settings(BaseSettings):
         self.device = DeviceSettings()
         self.server = ServerSettings()
         self.agent = AgentSettings()
+        self.accessibility = AccessibilitySettings()
 
 
 @lru_cache

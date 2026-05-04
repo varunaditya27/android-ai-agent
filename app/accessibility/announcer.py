@@ -1,85 +1,122 @@
 """
-Voice Announcement Module
-=========================
+Voice Announcer — Host-side TTS for Blind Users
+================================================
 
-Provides voice feedback to users through text-to-speech.
+Provides real text-to-speech output via **pyttsx3** so that blind users
+hear what the agent is doing through the host computer's speakers.
 
-This module handles generating spoken feedback about:
-- Action confirmations
-- Screen state descriptions
-- Error messages
-- Progress updates
+Key design decisions:
+- pyttsx3 runs synchronously, so we call it via ``asyncio.to_thread()``
+  to avoid blocking the event loop.
+- Deduplication prevents repeating the same announcement within a timeout.
+- ``screen_reader_mode`` strips emojis and formats text for NVDA / JAWS
+  / VoiceOver compatibility.
 
-The announcements are designed to be concise and informative
-for screen reader users.
+Usage::
+
+    from app.accessibility.announcer import Announcer, AnnouncementPriority
+
+    announcer = Announcer()
+    await announcer.speak("Task started: Open YouTube")
+    await announcer.announce_action("Tap", success=True, details="Search button")
 """
 
 import asyncio
+import re
+import time
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Any, Callable, Optional
+from enum import IntEnum
 from queue import PriorityQueue
+from typing import Any, Callable, Optional
 
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-class AnnouncementPriority(Enum):
-    """Priority levels for announcements."""
+# ---------------------------------------------------------------------------
+# Data types
+# ---------------------------------------------------------------------------
 
-    LOW = 3  # Background info, can be interrupted
-    NORMAL = 2  # Standard announcements
-    HIGH = 1  # Important, interrupt current speech
-    CRITICAL = 0  # Urgent, must be heard immediately
+
+class AnnouncementPriority(IntEnum):
+    """Priority levels — lower numeric value = spoken first."""
+
+    LOW = 30
+    NORMAL = 20
+    HIGH = 10
+    CRITICAL = 0
 
 
 @dataclass(order=True)
 class Announcement:
-    """
-    A single announcement to be spoken.
-
-    Attributes:
-        priority: How urgent this announcement is.
-        text: The text to speak.
-        timestamp: When the announcement was created.
-        force: Whether to force-interrupt current speech.
-    """
+    """A queued speech item, ordered by priority then timestamp."""
 
     priority: int
+    timestamp: float = field(compare=True)
     text: str = field(compare=False)
-    timestamp: float = field(compare=False, default=0.0)
-    force: bool = field(compare=False, default=False)
+    force: bool = field(default=False, compare=False)
 
 
 @dataclass
 class AnnouncementConfig:
-    """
-    Configuration for the announcer.
-
-    Attributes:
-        enabled: Whether announcements are enabled.
-        speech_rate: Speed of speech (0.5-2.0, 1.0 is normal).
-        pitch: Pitch of speech (0.5-2.0, 1.0 is normal).
-        language: Language code (e.g., 'en-US').
-        max_queue_size: Maximum queued announcements.
-        duplicate_timeout: Ignore duplicates within this time (seconds).
-    """
+    """Configuration for the announcer."""
 
     enabled: bool = True
-    speech_rate: float = 1.0
+    speech_rate: int = 200
     pitch: float = 1.0
-    language: str = "en-US"
-    max_queue_size: int = 10
-    duplicate_timeout: float = 2.0
+    volume: float = 1.0
+    language: str = "en"
+    max_queue_size: int = 50
+    duplicate_timeout: float = 3.0
+    screen_reader_mode: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Emoji / special-char stripping for screen readers
+# ---------------------------------------------------------------------------
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001f600-\U0001f64f"  # emoticons
+    "\U0001f300-\U0001f5ff"  # symbols & pictographs
+    "\U0001f680-\U0001f6ff"  # transport & map
+    "\U0001f1e0-\U0001f1ff"  # flags
+    "\U00002702-\U000027b0"
+    "\U000024c2-\U0001f251"
+    "\U0001f900-\U0001f9ff"
+    "\U0001fa00-\U0001fa6f"
+    "\U0001fa70-\U0001faff"
+    "\u2600-\u26ff"
+    "\u2700-\u27bf"
+    "\u200d"
+    "\ufe0f"
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def _clean_for_speech(text: str) -> str:
+    """Strip emojis and normalise whitespace for TTS / screen readers."""
+    text = _EMOJI_RE.sub("", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Announcer
+# ---------------------------------------------------------------------------
 
 
 class Announcer:
     """
-    Manages voice announcements for the agent.
+    Voice announcer with real TTS output.
 
-    Handles queuing, deduplication, and delivery of
-    spoken feedback to users.
+    Provides:
+    - ``speak(text)`` — immediate TTS on the host via pyttsx3.
+    - High-level helpers (``announce_action``, ``announce_progress``, etc.)
+      that format text before speaking.
+    - Deduplication to prevent repeated announcements.
     """
 
     def __init__(
@@ -87,22 +124,18 @@ class Announcer:
         config: Optional[AnnouncementConfig] = None,
         speech_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
-        """
-        Initialize the announcer.
-
-        Args:
-            config: Announcer configuration.
-            speech_callback: Function to call for actual TTS.
-        """
         self.config = config or AnnouncementConfig()
         self.speech_callback = speech_callback
 
-        # Queue for announcements (priority queue)
+        # TTS engine (lazy-initialised on first use)
+        self._tts_engine = None
+
+        # Queue for announcements
         self._queue: PriorityQueue[Announcement] = PriorityQueue(
             maxsize=self.config.max_queue_size
         )
 
-        # Track recent announcements for deduplication
+        # Track recent announcements for dedup
         self._recent: dict[str, float] = {}
 
         # State
@@ -115,160 +148,198 @@ class Announcer:
             speech_rate=self.config.speech_rate,
         )
 
+    # ------------------------------------------------------------------
+    # TTS engine management
+    # ------------------------------------------------------------------
+
+    def _get_tts_engine(self):
+        """Lazily create pyttsx3 engine."""
+        if self._tts_engine is None:
+            try:
+                import pyttsx3
+
+                self._tts_engine = pyttsx3.init()
+                self._tts_engine.setProperty("rate", self.config.speech_rate)
+                self._tts_engine.setProperty("volume", self.config.volume)
+                logger.info("pyttsx3 TTS engine initialized")
+            except Exception as e:
+                logger.warning(
+                    "pyttsx3 not available, TTS disabled", error=str(e)
+                )
+                self._tts_engine = None
+        return self._tts_engine
+
+    def _speak_sync(self, text: str) -> None:
+        """Synchronous TTS — called via ``asyncio.to_thread``."""
+        engine = self._get_tts_engine()
+        if engine:
+            try:
+                engine.say(text)
+                engine.runAndWait()
+            except Exception as e:
+                logger.warning("TTS speak failed", error=str(e))
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    async def speak(
+        self,
+        text: str,
+        priority: AnnouncementPriority = AnnouncementPriority.NORMAL,
+    ) -> bool:
+        """
+        Speak text out loud via host TTS.
+
+        Also prints a ``[Agent]`` prefixed line to stdout so that
+        desktop screen readers (NVDA, JAWS, VoiceOver) pick it up.
+
+        Args:
+            text: Text to speak.
+            priority: Announcement priority.
+
+        Returns:
+            True if announcement was delivered.
+        """
+        if not self.config.enabled:
+            return False
+
+        clean = (
+            _clean_for_speech(text)
+            if self.config.screen_reader_mode
+            else text
+        )
+        if not clean:
+            return False
+
+        # Print for screen-reader software (NVDA etc. reads stdout)
+        print(f"[Agent] {clean}")
+
+        # Deduplicate
+        now = time.time()
+        if clean in self._recent:
+            if now - self._recent[clean] < self.config.duplicate_timeout:
+                return False
+        self._recent[clean] = now
+
+        # External callback (for tests / WebSocket forwarding)
+        if self.speech_callback:
+            self.speech_callback(clean)
+
+        # TTS via pyttsx3 on a worker thread
+        try:
+            await asyncio.to_thread(self._speak_sync, clean)
+        except Exception as e:
+            logger.debug("TTS unavailable", error=str(e))
+
+        return True
+
+    # Alias for backward compatibility
     async def announce(
         self,
         text: str,
         priority: AnnouncementPriority = AnnouncementPriority.NORMAL,
         force: bool = False,
     ) -> bool:
-        """
-        Queue an announcement to be spoken.
+        """Queue/speak an announcement."""
+        return await self.speak(text, priority)
 
-        Args:
-            text: The text to speak.
-            priority: Announcement priority.
-            force: Whether to force-interrupt current speech.
+    # ------------------------------------------------------------------
+    # High-level helpers
+    # ------------------------------------------------------------------
 
-        Returns:
-            True if announcement was queued.
-        """
-        if not self.config.enabled:
-            return False
-
-        # Check for duplicates
-        current_time = asyncio.get_event_loop().time()
-        if text in self._recent:
-            last_time = self._recent[text]
-            if current_time - last_time < self.config.duplicate_timeout:
-                logger.debug("Skipping duplicate announcement", text=text[:50])
-                return False
-
-        # Create announcement
-        announcement = Announcement(
-            priority=priority.value,
-            text=text,
-            timestamp=current_time,
-            force=force,
-        )
-
-        # Try to add to queue
-        try:
-            self._queue.put_nowait(announcement)
-            self._recent[text] = current_time
-            logger.debug(
-                "Announcement queued",
-                text=text[:50],
-                priority=priority.name,
-            )
-            return True
-        except asyncio.QueueFull:
-            logger.warning("Announcement queue full, dropping", text=text[:50])
-            return False
-
-    async def announce_action(self, action_type: str, success: bool, details: str = "") -> None:
-        """
-        Announce the result of an action.
-
-        Args:
-            action_type: Type of action performed.
-            success: Whether action succeeded.
-            details: Additional details.
-        """
+    async def announce_action(
+        self, action_type: str, success: bool, details: str = ""
+    ) -> None:
+        """Announce the result of an action."""
         if success:
             text = f"{action_type} completed"
             if details:
                 text += f": {details}"
-            await self.announce(text, AnnouncementPriority.NORMAL)
+            await self.speak(text, AnnouncementPriority.NORMAL)
         else:
             text = f"{action_type} failed"
             if details:
                 text += f": {details}"
-            await self.announce(text, AnnouncementPriority.HIGH)
+            await self.speak(text, AnnouncementPriority.HIGH)
 
-    async def announce_screen(self, app_name: str, screen_summary: str) -> None:
-        """
-        Announce current screen state.
+    async def announce_screen(
+        self, app_name: str, screen_summary: str
+    ) -> None:
+        """Announce current screen state."""
+        await self.speak(
+            f"{app_name}. {screen_summary}", AnnouncementPriority.NORMAL
+        )
 
-        Args:
-            app_name: Name of current app.
-            screen_summary: Brief description of screen.
-        """
-        text = f"{app_name}. {screen_summary}"
-        await self.announce(text, AnnouncementPriority.NORMAL)
-
-    async def announce_progress(self, step: int, total_steps: int, current_action: str) -> None:
-        """
-        Announce task progress.
-
-        Args:
-            step: Current step number.
-            total_steps: Total expected steps (0 if unknown).
-            current_action: What's currently being done.
-        """
+    async def announce_progress(
+        self, step: int, total_steps: int, current_action: str
+    ) -> None:
+        """Announce task progress."""
         if total_steps > 0:
             text = f"Step {step} of {total_steps}: {current_action}"
         else:
             text = f"Step {step}: {current_action}"
-        await self.announce(text, AnnouncementPriority.LOW)
+        await self.speak(text, AnnouncementPriority.LOW)
 
-    async def announce_error(self, error: str, recoverable: bool = True) -> None:
-        """
-        Announce an error.
-
-        Args:
-            error: Error description.
-            recoverable: Whether the error is recoverable.
-        """
-        priority = AnnouncementPriority.HIGH if recoverable else AnnouncementPriority.CRITICAL
+    async def announce_error(
+        self, error: str, recoverable: bool = True
+    ) -> None:
+        """Announce an error."""
+        priority = (
+            AnnouncementPriority.HIGH
+            if recoverable
+            else AnnouncementPriority.CRITICAL
+        )
         text = f"Error: {error}"
         if recoverable:
             text += ". Retrying."
-        await self.announce(text, priority)
+        await self.speak(text, priority)
 
     async def announce_input_required(self, prompt: str) -> None:
-        """
-        Announce that user input is needed.
-
-        Args:
-            prompt: The input prompt.
-        """
-        await self.announce(
-            f"Input required: {prompt}",
-            AnnouncementPriority.CRITICAL,
-            force=True,
+        """Announce that user input is needed."""
+        await self.speak(
+            f"Input required: {prompt}", AnnouncementPriority.CRITICAL
         )
 
-    async def announce_completion(self, success: bool, message: str) -> None:
-        """
-        Announce task completion.
-
-        Args:
-            success: Whether task succeeded.
-            message: Completion message.
-        """
+    async def announce_completion(
+        self, success: bool, message: str
+    ) -> None:
+        """Announce task completion."""
         if success:
             text = f"Task completed: {message}"
         else:
             text = f"Task failed: {message}"
-        await self.announce(text, AnnouncementPriority.CRITICAL, force=True)
+        await self.speak(text, AnnouncementPriority.CRITICAL)
+
+    async def announce_task_start(self, task: str) -> None:
+        """Announce that a new task has started."""
+        await self.speak(
+            f"Starting task: {task}", AnnouncementPriority.HIGH
+        )
+
+    async def announce_rate_limit(self, wait_seconds: float) -> None:
+        """Announce rate-limit wait."""
+        await self.speak(
+            f"Rate limited. Waiting {int(wait_seconds)} seconds.",
+            AnnouncementPriority.NORMAL,
+        )
+
+    # ------------------------------------------------------------------
+    # Queue processing (for batch / WebSocket)
+    # ------------------------------------------------------------------
 
     async def process_queue(self) -> None:
-        """Process the announcement queue."""
+        """Process queued announcements."""
         while not self._queue.empty():
             try:
                 announcement = self._queue.get_nowait()
-
-                # Deliver via callback
                 if self.speech_callback:
                     self.speech_callback(announcement.text)
-
-                logger.debug("Announcement delivered", text=announcement.text[:50])
-
-                # Brief pause between announcements
                 await asyncio.sleep(0.1)
-
             except Exception as e:
-                logger.error("Error processing announcement", error=str(e))
+                logger.error(
+                    "Error processing announcement", error=str(e)
+                )
 
     def clear_queue(self) -> None:
         """Clear all pending announcements."""
@@ -277,13 +348,22 @@ class Announcer:
                 self._queue.get_nowait()
             except Exception:
                 pass
-        logger.debug("Announcement queue cleared")
 
     def stop(self) -> None:
         """Stop current speech and clear queue."""
         self._is_speaking = False
         self._current_announcement = None
         self.clear_queue()
+        if self._tts_engine:
+            try:
+                self._tts_engine.stop()
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# Utility
+# ---------------------------------------------------------------------------
 
 
 def format_element_for_speech(
@@ -294,15 +374,9 @@ def format_element_for_speech(
     """
     Format a UI element for speech output.
 
-    Args:
-        element_type: Type of element (Button, EditText, etc.).
-        text: Element text content.
-        properties: Element properties.
-
-    Returns:
-        Speech-friendly description.
+    Maps Android widget types to natural-language role names
+    and appends state information (checked, disabled, etc.).
     """
-    # Map element types to natural speech
     type_map = {
         "Button": "button",
         "EditText": "text field",
@@ -319,17 +393,13 @@ def format_element_for_speech(
     }
 
     spoken_type = type_map.get(element_type, element_type.lower())
+    parts: list[str] = []
 
-    parts = []
-
-    # Text content
     if text:
         parts.append(text)
 
-    # Type
     parts.append(spoken_type)
 
-    # State
     if properties.get("checked"):
         parts.append("checked")
     elif properties.get("checkable"):

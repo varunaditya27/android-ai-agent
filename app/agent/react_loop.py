@@ -30,6 +30,7 @@ from typing import Any, Callable, Optional
 from app.agent.actions.handler import ActionHandler, ActionExecutionResult
 from app.agent.prompts import SYSTEM_PROMPT, REFLECTION_PROMPT, build_user_prompt
 from app.agent.state import AgentState, TaskStatus
+from app.accessibility.manager import AccessibilityManager
 from app.device.cloud_provider import CloudDevice
 from app.device.screenshot import resize_for_llm
 from app.llm.response_parser import ActionType, parse_response, format_action_for_log
@@ -144,6 +145,7 @@ class ReActAgent:
         config: Optional[AgentConfig] = None,
         on_step: Optional[Callable[[StepResult], None]] = None,
         on_input_required: Optional[Callable[[str], str]] = None,
+        accessibility: Optional[AccessibilityManager] = None,
     ) -> None:
         """
         Initialize the ReAct agent.
@@ -156,6 +158,7 @@ class ReActAgent:
             config: Agent configuration.
             on_step: Callback for each step completion.
             on_input_required: Callback for user input requests.
+            accessibility: AccessibilityManager for TTS / haptics / TalkBack.
         """
         self.llm = llm_client
         self.device = device
@@ -174,6 +177,9 @@ class ReActAgent:
         # Callbacks
         self.on_step = on_step
         self.on_input_required = on_input_required
+
+        # Accessibility
+        self.a11y = accessibility
 
         # State
         self.state = AgentState()
@@ -203,6 +209,13 @@ class ReActAgent:
         # Reset API call counter for this task
         self.llm.reset_api_call_count()
 
+        # Accessibility: announce task start
+        if self.a11y:
+            try:
+                await self.a11y.on_task_start(task)
+            except Exception:
+                pass  # never let a11y failures block the agent
+
         try:
             while self.state.current_step < self.config.max_steps:
                 # Check for too many consecutive errors
@@ -227,12 +240,37 @@ class ReActAgent:
                 if self.on_step:
                     self.on_step(step_result)
 
+                # Accessibility: announce step result
+                if self.a11y:
+                    try:
+                        await self.a11y.on_step(
+                            step_num=self.state.current_step,
+                            max_steps=self.config.max_steps,
+                            action_type=step_result.action_type or "Unknown",
+                            success=step_result.success,
+                            thinking=step_result.thinking,
+                            error=step_result.error,
+                            finished=step_result.finished,
+                            result_message=step_result.action_message or "",
+                        )
+                    except Exception:
+                        pass
+
                 # Check if task is finished
                 if step_result.finished:
                     break
 
                 # Handle input requests
                 if step_result.requires_input:
+                    # Accessibility: announce input needed
+                    if self.a11y:
+                        try:
+                            await self.a11y.on_input_required(
+                                step_result.input_prompt or ""
+                            )
+                        except Exception:
+                            pass
+
                     if self.on_input_required:
                         user_input = self.on_input_required(step_result.input_prompt or "")
                         self.state.provide_input(user_input)
@@ -332,6 +370,12 @@ class ReActAgent:
                             error=f"Rate limited (attempt {attempt}/{self.config.rate_limit_max_retries}). Waiting {round(delay)}s…",
                         )
                         self.on_step(wait_result)
+                    # Accessibility: announce rate-limit wait
+                    if self.a11y:
+                        try:
+                            await self.a11y.on_rate_limit(delay)
+                        except Exception:
+                            pass
                     await asyncio.sleep(delay)
                     # Update the LLM call timestamp
                     self._last_llm_call_time = time.time()

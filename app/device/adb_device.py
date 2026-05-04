@@ -799,6 +799,39 @@ class ADBDevice(CloudDevice):
         except Exception as e:
             return ActionResult(success=False, error=str(e))
 
+    # ------------------------------------------------------------------
+    # Shell access (used by accessibility modules)
+    # ------------------------------------------------------------------
+
+    async def execute_shell(self, command: str) -> str:
+        """
+        Execute a raw shell command on the device via ``adb shell``.
+
+        Args:
+            command: Shell command string (e.g. ``"settings get secure ..."``).
+
+        Returns:
+            Stdout of the command, stripped of leading/trailing whitespace.
+
+        Raises:
+            RuntimeError: If the command fails or the device is not connected.
+        """
+        if not self.is_connected:
+            raise RuntimeError("Device not connected")
+
+        # Split the command so each token is a separate arg to _run_adb.
+        # Using "shell" + the raw string preserves pipes/redirects handled
+        # by the device-side shell.
+        result = await self._run_adb("shell", command, timeout=15.0)
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            raise RuntimeError(
+                f"Shell command failed (rc={result.returncode}): {stderr}"
+            )
+
+        return (result.stdout or "").strip()
+
 
 def get_available_emulators() -> list[str]:
     """

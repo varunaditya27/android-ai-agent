@@ -233,6 +233,29 @@ class CloudDevice(ABC):
         """
         pass
 
+    async def execute_shell(self, command: str) -> str:
+        """
+        Execute a raw shell command on the device.
+
+        Used by accessibility modules to control TalkBack, haptics, and
+        display settings.  The default implementation raises
+        ``NotImplementedError``; concrete subclasses (e.g. ``ADBDevice``)
+        override this.
+
+        Args:
+            command: Shell command to run (e.g. "settings get secure ...").
+
+        Returns:
+            Command stdout as a string (stripped).
+
+        Raises:
+            NotImplementedError: If the provider does not support shell access.
+            RuntimeError: If the command fails.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support execute_shell"
+        )
+
     async def swipe_direction(
         self, direction: str, distance_percent: float = 0.5
     ) -> ActionResult:

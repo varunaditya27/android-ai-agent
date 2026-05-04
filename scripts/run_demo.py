@@ -31,6 +31,7 @@ import signal
 import sys
 import traceback
 from pathlib import Path
+from typing import Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -43,6 +44,7 @@ from app.llm.groq_client import GroqLLMClient
 from app.llm.groq_client import RateLimitError as GroqRateLimitError
 from app.llm.key_rotator import ApiKeyRotator
 from app.llm.models import LLMConfig
+from app.accessibility.manager import AccessibilityManager
 from app.utils.logger import setup_logging, get_logger
 
 
@@ -57,7 +59,7 @@ def _handle_signal(sig, frame):
         # Second interrupt → force exit
         sys.exit(1)
     _shutdown_requested = True
-    print("\n\n⚠️  Interrupted — shutting down gracefully…")
+    print(f"\n\nInterrupted -- shutting down gracefully.")
 
 
 class DemoRunner:
@@ -70,16 +72,27 @@ class DemoRunner:
         self.device = None
         self.agent = None
         self.llm_client = None
+        self.a11y: Optional[AccessibilityManager] = None
+
+    @property
+    def _sr(self) -> bool:
+        """True when screen-reader mode is active."""
+        return (
+            self.a11y is not None
+            and self.a11y.announcer.config.screen_reader_mode
+        )
 
     async def setup(self) -> bool:
         """Set up device and agent.  Returns True on success."""
-        print("\n🚀 Setting up Android AI Agent…")
+        # Note: _sr is False here because a11y isn't created yet.
+        # Screen-reader output begins after the Accessibility block below.
+        print("\nSetting up Android AI Agent...")
         print("   Using FREE tools: Google Gemini + Local Emulator\n")
 
         # ── Device ────────────────────────────────────────────────
         try:
             provider = self.settings.device.device_provider
-            print(f"📱 Device provider: {provider}")
+            print(f"Device provider: {provider}")
 
             if provider in ("adb", "local", "emulator"):
                 try:
@@ -89,22 +102,22 @@ class DemoRunner:
                 except Exception:
                     pass  # non-critical
             elif provider == "aws_device_farm":
-                print("   ☁️  Using AWS Device Farm (session may take 1-3 min to start)")
+                print("   Using AWS Device Farm (session may take 1-3 min to start)")
 
             self.device = await create_cloud_device(
                 provider=provider,
                 device_id=self.settings.device.adb_device_serial or None,
             )
 
-            print("📱 Connecting to device…")
+            print("Connecting to device...")
             connected = await self.device.connect()
 
             if not connected:
-                print("❌ Failed to connect to device")
-                print("\n💡 Tips:")
-                print("   • Make sure Android Emulator is running")
-                print("   • Or connect a physical device via USB with USB debugging enabled")
-                print("   • Run 'adb devices' to check connected devices")
+                print("FAILED: Could not connect to device")
+                print("\nTips:")
+                print("   - Make sure Android Emulator is running")
+                print("   - Or connect a physical device via USB with USB debugging enabled")
+                print("   - Run 'adb devices' to check connected devices")
                 return False
 
             info = self.device.info
@@ -114,21 +127,21 @@ class DemoRunner:
                 print(f"   ✓ Screen: {info.screen_width}x{info.screen_height}")
 
         except FileNotFoundError:
-            print("❌ 'adb' command not found")
-            print("\n💡 Install Android SDK platform-tools and ensure 'adb' is in your PATH.")
+            print("FAILED: 'adb' command not found")
+            print("\nInstall Android SDK platform-tools and ensure 'adb' is in your PATH.")
             return False
         except Exception as e:
-            print(f"❌ Failed to setup device: {e}")
+            print(f"FAILED: Device setup error: {e}")
             if provider == "aws_device_farm":
-                print("\n💡 Make sure:")
-                print("   • AWS credentials are configured (aws configure)")
-                print("   • AWS_DEVICE_FARM_PROJECT_ARN is set in .env")
-                print("   • Your AWS account has Device Farm access")
+                print("\nMake sure:")
+                print("   - AWS credentials are configured (aws configure)")
+                print("   - AWS_DEVICE_FARM_PROJECT_ARN is set in .env")
+                print("   - Your AWS account has Device Farm access")
             else:
-                print("\n💡 Make sure:")
-                print("   • Android SDK is installed (adb in PATH)")
-                print("   • Emulator is running or device is connected")
-                print("   • Run 'adb devices' to check connected devices")
+                print("\nMake sure:")
+                print("   - Android SDK is installed (adb in PATH)")
+                print("   - Emulator is running or device is connected")
+                print("   - Run 'adb devices' to check connected devices")
             return False
 
         # ── LLM ───────────────────────────────────────────────────
@@ -148,7 +161,7 @@ class DemoRunner:
                     top_k=self.settings.llm.llm_top_k,
                 )
                 self.llm_client = GroqLLMClient(llm_config)
-                print(f"🤖 Using Groq model: {groq_model}")
+                print(f"LLM: Groq model: {groq_model}")
                 print(f"   Free tier: 1,000 requests/day, 30 req/min")
                 print(f"   Max output tokens: {self.settings.llm.llm_max_output_tokens}")
             else:
@@ -165,24 +178,56 @@ class DemoRunner:
                     top_k=self.settings.llm.llm_top_k,
                 )
                 self.llm_client = LLMClient(llm_config, key_rotator=rotator)
-                print(f"🤖 Using Gemini model: {self.settings.llm.llm_model}")
+                print(f"LLM: Gemini model: {self.settings.llm.llm_model}")
                 print(f"   Max output tokens: {self.settings.llm.llm_max_output_tokens}")
                 if rotator:
-                    print(f"   🔑 Key rotation enabled: {rotator.total_keys} API keys")
+                    print(f"   Key rotation enabled: {rotator.total_keys} API keys")
                 else:
-                    print("   🔑 Using single API key")
+                    print("   Using single API key")
         except ValueError as e:
-            print(f"❌ LLM configuration error: {e}")
+            print(f"FAILED: LLM configuration error: {e}")
             if self.settings.llm.llm_provider == "groq":
-                print("\n💡 Make sure GROQ_API_KEY is set in your .env file.")
+                print("\nMake sure GROQ_API_KEY is set in your .env file.")
                 print("   Get a free key → https://console.groq.com/keys")
             else:
-                print("\n💡 Make sure GEMINI_API_KEY or GEMINI_API_KEYS is set in your .env file.")
-                print("   Get a free key → https://aistudio.google.com/apikey")
+                print("\nMake sure GEMINI_API_KEY or GEMINI_API_KEYS is set in your .env file.")
+                print("   Get a free key: https://aistudio.google.com/apikey")
             return False
         except Exception as e:
-            print(f"❌ Failed to setup LLM: {e}")
+            print(f"FAILED: LLM setup error: {e}")
             return False
+
+        # ── Accessibility ──────────────────────────────────────────
+        a11y_cfg = self.settings.accessibility
+        screen_reader = a11y_cfg.screen_reader_mode if a11y_cfg.enable_accessibility else False
+        self.a11y = AccessibilityManager(
+            device=self.device,
+            enable_tts=a11y_cfg.enable_tts and a11y_cfg.enable_accessibility,
+            tts_rate=a11y_cfg.tts_rate,
+            tts_volume=a11y_cfg.tts_volume,
+            enable_haptics=a11y_cfg.enable_haptics and a11y_cfg.enable_accessibility,
+            enable_talkback=a11y_cfg.enable_talkback and a11y_cfg.enable_accessibility,
+            high_contrast=a11y_cfg.enable_high_contrast,
+            large_text=a11y_cfg.enable_large_text,
+            screen_reader_mode=screen_reader,
+        )
+        await self.a11y.setup()
+
+        if a11y_cfg.enable_accessibility:
+            features = []
+            if a11y_cfg.enable_tts:
+                features.append("TTS")
+            if a11y_cfg.enable_haptics:
+                features.append("Haptics")
+            if a11y_cfg.enable_talkback:
+                features.append("TalkBack")
+            if screen_reader:
+                features.append("Screen-reader output")
+            sr_prefix = "" if screen_reader else "   "
+            if screen_reader:
+                print(f"Accessibility enabled: {', '.join(features)}")
+            else:
+                print(f"♿ Accessibility enabled: {', '.join(features)}")
 
         # ── Agent ─────────────────────────────────────────────────
         self.agent = ReActAgent(
@@ -198,67 +243,113 @@ class DemoRunner:
             ),
             on_step=self._on_step,
             on_input_required=self._on_input_required,
+            accessibility=self.a11y,
         )
 
-        print("✓ Agent ready!\n")
+        if screen_reader:
+            print("Agent ready.\n")
+        else:
+            print("✓ Agent ready!\n")
         return True
 
     async def cleanup(self):
         """Clean up resources."""
         if self.device:
-            print("\n📱 Disconnecting device…")
+            print("\nDisconnecting device...")
             try:
                 await self.device.disconnect()
-                print("✓ Device disconnected")
+                print("Done. Device disconnected.")
             except Exception:
                 pass  # best-effort
 
     def _on_step(self, step: StepResult):
         """Display each step to the user."""
+        sr = (
+            self.a11y is not None
+            and self.a11y.announcer.config.screen_reader_mode
+        )
+
         # Rate-limit wait notifications
         if step.action_type == "WAIT_RATE_LIMIT":
-            print(f"\n   ⏳ {step.error}")
+            if sr:
+                print(f"\n   {step.error}")
+            else:
+                print(f"\n   ⏳ {step.error}")
             return
 
-        status = "✓" if step.success else "✗"
+        status = "OK" if step.success else "FAIL"
+        if not sr:
+            status = "✓" if step.success else "✗"
         print(f"\n{status} Step: {step.action_type}")
 
         if step.thinking:
             thinking_display = (
                 step.thinking[:120] + "…" if len(step.thinking) > 120 else step.thinking
             )
-            print(f"   💭 {thinking_display}")
+            if sr:
+                print(f"   Thinking: {thinking_display}")
+            else:
+                print(f"   💭 {thinking_display}")
 
         if step.error:
             # Shorten huge API error dumps for readability
             short_error = step.error
             if len(short_error) > 200:
                 short_error = short_error[:200] + "…"
-            print(f"   ❌ Error: {short_error}")
+            if sr:
+                print(f"   Error: {short_error}")
+            else:
+                print(f"   ❌ Error: {short_error}")
 
         if step.finished:
-            print(f"\n🎉 Task finished: {step.action_message}")
+            if sr:
+                print(f"\nTask finished: {step.action_message}")
+            else:
+                print(f"\n🎉 Task finished: {step.action_message}")
 
     def _on_input_required(self, prompt: str) -> str:
         """Handle input requests (for authentication flows)."""
-        print(f"\n⌨️  Input required: {prompt}")
-        print("   (This is used for entering credentials, OTPs, etc.)")
+        sr = (
+            self.a11y is not None
+            and self.a11y.announcer.config.screen_reader_mode
+        )
+        if sr:
+            print(f"\n   Input required: {prompt}")
+            print("   (Used for entering credentials, OTPs, etc.)")
+        else:
+            print(f"\n⌨️  Input required: {prompt}")
+            print("   (This is used for entering credentials, OTPs, etc.)")
         return input("   Enter value: ")
 
     async def run_task(self, task: str) -> bool:
         """Run a single task with full error handling."""
-        print(f"\n📋 Task: {task}")
-        print("─" * 50)
+        sr = (
+            self.a11y is not None
+            and self.a11y.announcer.config.screen_reader_mode
+        )
+
+        if sr:
+            print(f"\nTask: {task}")
+            print("-" * 50)
+        else:
+            print(f"\n📋 Task: {task}")
+            print("─" * 50)
 
         try:
             result = await self.agent.run(task)
 
             print("\n" + "=" * 50)
             if result.success:
-                print("✅ TASK COMPLETED SUCCESSFULLY")
+                if sr:
+                    print("TASK COMPLETED SUCCESSFULLY")
+                else:
+                    print("✅ TASK COMPLETED SUCCESSFULLY")
                 print(f"   Result: {result.result}")
             else:
-                print("❌ TASK FAILED")
+                if sr:
+                    print("TASK FAILED")
+                else:
+                    print("❌ TASK FAILED")
                 error_display = result.error or "Unknown error"
                 if len(error_display) > 200:
                     error_display = error_display[:200] + "…"
@@ -273,17 +364,17 @@ class DemoRunner:
 
         except (RateLimitError, GroqRateLimitError) as e:
             provider_name = "Groq" if self.settings.llm.llm_provider == "groq" else "Gemini"
-            print(f"\n⏳ Rate limited by {provider_name} API.")
+            print(f"\nRate limited by {provider_name} API.")
             print(f"   The API asks to wait ~{round(e.retry_after)}s.")
-            print("   💡 You can retry the task in a moment, or use a different API key.")
+            print("   You can retry the task in a moment, or use a different API key.")
             return False
 
         except KeyboardInterrupt:
-            print("\n\n⚠️  Task interrupted by user.")
+            print("\n\nTask interrupted by user.")
             return False
 
         except Exception as e:
-            print(f"\n❌ Unexpected error: {e}")
+            print(f"\nUnexpected error: {e}")
             self.logger.error("Task failed", error=str(e))
             if self.settings.server.debug:
                 traceback.print_exc()
@@ -295,9 +386,9 @@ async def interactive_mode(runner: DemoRunner):
     print("\n" + "=" * 50)
     print("Interactive Mode")
     print("Type your tasks or commands:")
-    print("  • Type a task description to execute it")
-    print("  • Type 'exit' or 'quit' to stop")
-    print("  • Type 'help' for example tasks")
+    print("  - Type a task description to execute it")
+    print("  - Type 'exit' or 'quit' to stop")
+    print("  - Type 'help' for example tasks")
     print("=" * 50)
 
     example_tasks = [
@@ -311,13 +402,13 @@ async def interactive_mode(runner: DemoRunner):
 
     while True:
         try:
-            task = input("\n🎯 Enter task: ").strip()
+            task = input("\nEnter task: ").strip()
 
             if not task:
                 continue
 
             if task.lower() in ("exit", "quit", "q"):
-                print("Goodbye! 👋")
+                print("Goodbye!")
                 break
 
             if task.lower() == "help":
@@ -340,7 +431,7 @@ async def interactive_mode(runner: DemoRunner):
             await runner.run_task(task)
 
         except (KeyboardInterrupt, EOFError):
-            print("\n\nInterrupted. Goodbye! 👋")
+            print("\n\nInterrupted. Goodbye!")
             break
 
 
@@ -396,8 +487,8 @@ Setup:
     try:
         settings = get_settings()
     except Exception as e:
-        print(f"❌ Configuration error: {e}")
-        print("\n💡 Make sure you have:")
+        print(f"Configuration error: {e}")
+        print("\nMake sure you have:")
         print("   1. Copied .env.example to .env")
         print("   2. Set GEMINI_API_KEY in .env")
         print("\nGet a FREE API key: https://aistudio.google.com/apikey")
@@ -410,8 +501,8 @@ Setup:
     if llm_provider == "groq":
         groq_key = settings.llm.groq_api_key
         if not groq_key or groq_key in placeholder_keys:
-            print("❌ No Groq API key configured")
-            print("\n💡 Steps to fix:")
+            print("No Groq API key configured")
+            print("\nSteps to fix:")
             print("   1. Go to https://console.groq.com/keys")
             print("   2. Create a FREE API key")
             print("   3. Set GROQ_API_KEY in your .env file")
@@ -421,8 +512,8 @@ Setup:
         all_keys = settings.llm.get_all_api_keys()
         valid_keys = [k for k in all_keys if k not in placeholder_keys]
         if not valid_keys:
-            print("❌ No Gemini API key configured")
-            print("\n💡 Steps to fix:")
+            print("No Gemini API key configured")
+            print("\nSteps to fix:")
             print("   1. Go to https://aistudio.google.com/apikey")
             print("   2. Create a FREE API key")
             print("   3. Set GEMINI_API_KEY (single) or GEMINI_API_KEYS (comma-separated) in .env")
@@ -456,6 +547,6 @@ if __name__ == "__main__":
         print("\n\nInterrupted. Goodbye!")
         sys.exit(0)
     except Exception as e:
-        print(f"\n❌ Fatal error: {e}")
+        print(f"\nFatal error: {e}")
         traceback.print_exc()
         sys.exit(1)
